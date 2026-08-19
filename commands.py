@@ -1752,7 +1752,8 @@ def run_command_delete_key_pair(
                 had_error = True
 
         if session_opened and not had_error:
-            rv = pkcs11.C_Login(session, CKU_USER, pin.encode('utf-8'), len(pin))
+            pin_bytes = pin.encode('utf-8')
+            rv = pkcs11.C_Login(session, CKU_USER, pin_bytes, len(pin_bytes))
             if rv != CKR_OK:
                 print(f'C_Login вернула ошибку: 0x{rv:08X}')
                 had_error = True

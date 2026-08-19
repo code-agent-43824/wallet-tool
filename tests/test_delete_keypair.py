@@ -117,6 +117,23 @@ def test_delete_pair_with_private(monkeypatch):
     assert logout_called == [True]
 
 
+def test_delete_pair_login_uses_pin_length_in_bytes(monkeypatch):
+    """C_Login принимает длину в байтах: у кириллического PIN она вдвое больше числа букв."""
+
+    destroyed, login_args, logout_called = setup_mock(
+        monkeypatch,
+        public_handles=[10],
+        private_handles=[11],
+    )
+
+    pin = 'пароль'
+    commands.delete_key_pair(wallet_id=1, pin=pin, key_number=1)
+
+    session, user_type, pin_ptr, pin_len = login_args[0]
+    assert pin_len == len(pin.encode('utf-8')) == 12
+    assert pin_len != len(pin)
+
+
 def test_delete_pair_requires_pin(monkeypatch, capsys):
     destroyed, login_args, logout_called = setup_mock(
         monkeypatch,
