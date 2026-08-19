@@ -44,8 +44,9 @@ jobs:
             libwtpkcs11ecp.so
           key: pkcs11-${{ runner.os }}-${{ env.PKCS11_VERSION }}
 
-      - name: Download WT PKCS#11 .so
-        if: steps.cache-pkcs11.outputs.cache-hit != 'true'
+      # Запускается и при попадании в кэш: контрольная сумма ассета проверяется
+      # каждый раз, кэшированный архив доверия не заслуживает.
+      - name: Fetch and verify WT PKCS#11 .so
         run: |
           python scripts/download_wtpkcs11ecp.py \
             --pattern linux \

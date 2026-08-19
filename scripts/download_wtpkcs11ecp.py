@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -16,6 +17,8 @@ import zipfile
 API_BASE = "https://api.github.com"
 DEFAULT_RELEASE_TAG = "3rdparty"
 DEFAULT_CACHE_DIR = Path(".cache") / "wtpkcs11ecp"
+DEFAULT_CHECKSUM_FILE = Path(__file__).resolve().with_name("wtpkcs11ecp.sha256")
+HEX_DIGITS = set("0123456789abcdef")
 
 
 def make_headers(token: Optional[str], accept: str) -> dict[str, str]:
@@ -67,6 +70,73 @@ def find_asset(assets: Iterable[dict], name: Optional[str], patterns: Iterable[s
             f"{asset_names}. Provide a more specific pattern or --asset-name."
         )
     return candidates[0]
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def normalise_digest(value: str, source: str) -> str:
+    digest = value.strip().lower()
+    if len(digest) != 64 or not set(digest) <= HEX_DIGITS:
+        raise SystemExit(f"{source}: '{value}' is not a SHA-256 digest")
+    return digest
+
+
+def load_checksums(path: Path) -> dict[str, str]:
+    """Read a sha256sum-style file into {asset name: digest}."""
+
+    checksums: dict[str, str] = {}
+    if not path.exists():
+        return checksums
+
+    for number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            raise SystemExit(
+                f"{path}:{number}: expected '<sha256>  <asset name>', got {raw_line!r}"
+            )
+        digest = normalise_digest(parts[0], f"{path}:{number}")
+        # sha256sum marks binary mode with a leading '*' on the name.
+        checksums[parts[1].strip().lstrip("*")] = digest
+    return checksums
+
+
+def resolve_expected_digest(
+    asset_name: str,
+    override: Optional[str],
+    checksums: dict[str, str],
+    checksum_file: Path,
+) -> str:
+    if override:
+        return normalise_digest(override, "--sha256")
+
+    digest = checksums.get(asset_name)
+    if digest is None:
+        raise SystemExit(
+            f"No SHA-256 pinned for asset '{asset_name}' in {checksum_file}. "
+            "Vendor binaries must be pinned: add the digest to that file, or pass "
+            "--sha256 explicitly for a one-off download."
+        )
+    return digest
+
+
+def verify_digest(path: Path, asset_name: str, expected: str) -> None:
+    actual = sha256_of(path)
+    if actual != expected:
+        raise SystemExit(
+            f"SHA-256 mismatch for asset '{asset_name}':\n"
+            f"  expected {expected}\n"
+            f"  actual   {actual}\n"
+            "The release asset does not match the pinned digest. Refusing to use it."
+        )
 
 
 def download_asset(url: str, token: Optional[str], destination: Path) -> None:
@@ -155,6 +225,22 @@ def main() -> None:
         help="Destination path for the library (relative paths are resolved against the current directory).",
     )
     parser.add_argument(
+        "--checksum-file",
+        type=Path,
+        default=DEFAULT_CHECKSUM_FILE,
+        help=(
+            "File pinning the SHA-256 of each release asset, in sha256sum format "
+            f"(default: {DEFAULT_CHECKSUM_FILE.name} next to this script)."
+        ),
+    )
+    parser.add_argument(
+        "--sha256",
+        help=(
+            "Expected SHA-256 of the asset. Overrides the checksum file; use it for a "
+            "one-off download of an asset that is not pinned yet."
+        ),
+    )
+    parser.add_argument(
         "--cache-dir",
         type=Path,
         help=(
@@ -197,11 +283,10 @@ def main() -> None:
     cached_asset_path = asset_cache_dir / asset_name
     cached_library_path = asset_cache_dir / target.name
 
-    if cached_library_path.exists():
-        print(f"Using cached library from {cached_library_path}")
-        extracted = move_or_copy(cached_library_path, target)
-        print(f"Library saved to {extracted}")
-        return
+    checksums = load_checksums(args.checksum_file)
+    expected = resolve_expected_digest(
+        asset_name, args.sha256, checksums, args.checksum_file
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_asset_path = Path(tmpdir) / asset_name
@@ -213,6 +298,13 @@ def main() -> None:
                 f"Downloading asset '{asset_name}' from release '{args.tag}' in repo '{repository}'..."
             )
             download_asset(download_url, token, tmp_asset_path)
+
+        # Verified on every run, cache hit included: a cached asset is as
+        # untrusted as a freshly downloaded one.
+        verify_digest(tmp_asset_path, asset_name, expected)
+        print(f"SHA-256 verified: {expected}")
+
+        if not cached_asset_path.exists():
             move_or_copy(tmp_asset_path, cached_asset_path)
 
         suffix = tmp_asset_path.suffix.lower()
