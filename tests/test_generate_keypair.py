@@ -8,6 +8,10 @@ import commands
 import pkcs11
 import pkcs11_structs as structs
 
+# OID кривой secp256k1 (1.3.132.0.10) в DER — сверяем литералом, а не константой
+# из commands.py, иначе проверка пройдёт при любом её значении.
+SECP256K1_OID_DER = bytes((0x06, 0x05, 0x2B, 0x81, 0x04, 0x00, 0x0A))
+
 
 def make_pkcs11_mock(captured):
     pkcs11_mock = SimpleNamespace()
@@ -182,7 +186,7 @@ def test_generate_secp256_default(monkeypatch):
     assert 'priv_%d' % structs.CKA_VENDOR_BIP39_MNEMONIC_IS_EXTRACTABLE not in captured
     assert captured['pub_%d' % structs.CKA_KEY_TYPE] == structs.CKK_EC
     assert captured['priv_%d' % structs.CKA_KEY_TYPE] == structs.CKK_EC
-    assert captured['pub_%d' % structs.CKA_EC_PARAMS] == commands.SECP256R1_OID_DER
+    assert captured['pub_%d' % structs.CKA_EC_PARAMS] == SECP256K1_OID_DER
     assert captured['logout_called'] == 1
 
 
@@ -210,7 +214,7 @@ def test_generate_secp256_with_mnemonic(monkeypatch, capsys):
     )
     assert captured['pub_%d' % structs.CKA_KEY_TYPE] == structs.CKK_VENDOR_BIP32
     assert captured['priv_%d' % structs.CKA_KEY_TYPE] == structs.CKK_VENDOR_BIP32
-    assert captured['pub_%d' % structs.CKA_EC_PARAMS] == commands.SECP256R1_OID_DER
+    assert captured['pub_%d' % structs.CKA_EC_PARAMS] == SECP256K1_OID_DER
     assert captured['mnemonic_size_requests'] == [len(captured['sample_mnemonic'])]
     assert captured['mnemonic_value_requests'] == 1
     assert captured['mnemonic_locked_value'] == 0

@@ -12,6 +12,10 @@ import commands
 import pkcs11
 import pkcs11_structs as structs
 
+# OID кривой secp256k1 (1.3.132.0.10) в DER — сверяем литералом, а не константой
+# из commands.py, иначе проверка пройдёт при любом её значении.
+SECP256K1_OID_DER = bytes((0x06, 0x05, 0x2B, 0x81, 0x04, 0x00, 0x0A))
+
 
 def test_list_keys_public_only_no_pin(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
@@ -1296,7 +1300,7 @@ def test_import_keys_creates_object(monkeypatch, capsys):
     assert attrs['derive'] == 1
     assert attrs['value'] == expected_master
     assert attrs['chaincode'] == expected_chain
-    assert attrs['ec_params'] == commands.SECP256R1_OID_DER
+    assert attrs['ec_params'] == SECP256K1_OID_DER
     assert attrs['id'] == b'root'
     assert attrs['label'] == b'Master'
 

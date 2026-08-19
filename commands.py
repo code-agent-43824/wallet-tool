@@ -96,18 +96,19 @@ SIGN_KEY_CONFIG = {
     },
 }
 
-SECP256R1_OID_DER = bytes(
+# OID кривой secp256k1 (1.3.132.0.10) в DER, для CKA_EC_PARAMS.
+# Именно её использует BIP32: мастер-ключ выводится через HMAC-SHA512 с ключом
+# "Bitcoin seed", а это определение из спецификации биткойна. Референс вендора
+# (KeyFromSeed.c, GenerateKeyAndGetSeed.c) тоже берёт secp256k1 по умолчанию.
+SECP256K1_OID_DER = bytes(
     (
         0x06,
-        0x08,
-        0x2A,
-        0x86,
-        0x48,
-        0xCE,
-        0x3D,
-        0x03,
-        0x01,
-        0x07,
+        0x05,
+        0x2B,
+        0x81,
+        0x04,
+        0x00,
+        0x0A,
     )
 )
 
@@ -1152,8 +1153,8 @@ def run_command_import_keys(
                 key_type = ctypes.c_ulong(CKK_VENDOR_BIP32)
                 master_priv_buf = (ctypes.c_ubyte * len(master_priv))(*master_priv)
                 chain_code_buf = (ctypes.c_ubyte * len(chain_code))(*chain_code)
-                ec_params_buf = (ctypes.c_ubyte * len(SECP256R1_OID_DER))(
-                    *SECP256R1_OID_DER
+                ec_params_buf = (ctypes.c_ubyte * len(SECP256K1_OID_DER))(
+                    *SECP256K1_OID_DER
                 )
 
                 attributes = [
@@ -1197,7 +1198,7 @@ def run_command_import_keys(
                     CK_ATTRIBUTE(
                         type=CKA_EC_PARAMS,
                         pValue=ctypes.cast(ec_params_buf, ctypes.c_void_p),
-                        ulValueLen=len(SECP256R1_OID_DER),
+                        ulValueLen=len(SECP256K1_OID_DER),
                     ),
                 ]
 
@@ -1483,12 +1484,12 @@ def run_command_generate_key_pair(
                     mechanism.mechanism = CKM_EC_KEY_PAIR_GEN
                     mechanism.pParameter = None
                     mechanism.ulParameterLen = 0
-                oid = (ctypes.c_ubyte * len(SECP256R1_OID_DER))(*SECP256R1_OID_DER)
+                oid = (ctypes.c_ubyte * len(SECP256K1_OID_DER))(*SECP256K1_OID_DER)
                 pub_attrs.append(
                     CK_ATTRIBUTE(
                         type=CKA_EC_PARAMS,
                         pValue=ctypes.cast(oid, ctypes.c_void_p),
-                        ulValueLen=len(SECP256R1_OID_DER),
+                        ulValueLen=len(SECP256K1_OID_DER),
                     )
                 )
                 key_type_pub = ctypes.c_ulong(CKK_EC)
