@@ -241,9 +241,9 @@ None recorded.
 
 ## Version discipline
 
-There is **no version number anywhere** — no `__version__`, no tags, no changelog. Releases
-are cut by hand on GitHub, and `.github/workflows/release.yml` builds and attaches the
-artifacts. Do not invent a versioning scheme without a settled decision.
+Releases are tagged `vMAJOR.MINOR` — `v0.1` through `v0.6` so far — and cut by hand on
+GitHub; publishing one triggers `.github/workflows/release.yml`, which builds and attaches
+the artifacts. There is no changelog.
 
 ## Deployment
 
