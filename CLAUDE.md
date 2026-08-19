@@ -25,7 +25,7 @@ There is no `pyca/pkcs11` or any other binding — the whole FFI layer is hand-w
 
 | File | Role |
 | --- | --- |
-| `main.py` | `argparse` setup and one flat `if/elif` chain that picks the command |
+| `main.py` | `argparse` setup, PIN input, and one flat `if/elif` chain that picks the command |
 | `commands.py` | Everything else — 2200 lines, all command logic and console output |
 | `pkcs11.py` | Loads the shared library; the `@pkcs11_command` decorator |
 | `pkcs11_structs.py` | `CK_*` structures and every PKCS#11 constant the tool uses |
@@ -133,6 +133,13 @@ it — `"Нет подключенного кошелька" in captured.out`, `
 **`--force` deletes every object on the token**, not just key pairs, and needs the PIN.
 `--force` and `--key-number` are mutually exclusive, rejected in both `main.py` and
 `run_command_delete_key_pair`.
+
+**`--pin` and `--new-pin` are `nargs='?'`, so three states are distinct**: a value, the flag
+with no value (`PROMPT` sentinel), and the flag absent (`None`). `resolve_secret()` turns
+those into a PIN, asking via `getpass` on a terminal and reading one stdin line otherwise.
+Only `--list-keys` passes `required=False`, which is what keeps `--list-keys` with no `--pin`
+from consuming a line of stdin — every other command asks. Comparing `args.pin` against
+`None` alone would collapse the last two states and reintroduce the leak.
 
 ## Tests
 

@@ -1,4 +1,5 @@
 import argparse
+import getpass
 import sys
 from commands import (
     library_info,
@@ -23,6 +24,44 @@ class CustomArgumentParser(argparse.ArgumentParser):
     def format_help(self):
         base_help = super().format_help()
         return "Инструмент для работы с wtpkcs11ecp\n" + base_help
+
+
+# Маркер: параметр указан без значения, секрет нужно запросить.
+PROMPT = object()
+
+
+def read_secret(prompt):
+    """Прочитать секрет, не оставляя его в истории оболочки.
+
+    С терминала читаем через ``getpass``, чтобы ввод не отображался. Если stdin
+    перенаправлен (конвейер, файл), берём одну строку — так утилита остаётся
+    пригодной для скриптов.
+    """
+
+    if sys.stdin is not None and sys.stdin.isatty():
+        return getpass.getpass(prompt)
+
+    line = sys.stdin.readline()
+    if not line:
+        return ''
+    return line.rstrip('\n').rstrip('\r')
+
+
+def resolve_secret(value, prompt, required):
+    """Определить секрет: из аргумента, запросом или оставить пустым.
+
+    ``value`` — то, что положил argparse: строка, ``PROMPT`` (параметр указан без
+    значения) или ``None`` (параметр не указан). Когда секрет обязателен, его
+    запрашивают и в последнем случае.
+    """
+
+    if value is PROMPT:
+        return read_secret(prompt)
+    if value is not None:
+        return value
+    if required:
+        return read_secret(prompt)
+    return None
 
 
 def main():
@@ -83,12 +122,15 @@ def main():
                         help='Сменить пользовательский PIN-код')
     parser.add_argument('--sign', action='store_true',
                         help='Подписать данные выбранным ключом')
-    parser.add_argument('--new-pin', type=str, default=None,
-                        help='Новый PIN-код для смены')
+    parser.add_argument('--new-pin', nargs='?', const=PROMPT, default=None,
+                        help='Новый PIN-код для смены; без значения будет запрошен')
     parser.add_argument('--wallet-id', type=int, default=0,
                         help='Идентификатор кошелька для выполнения команды (по умолчанию 0)')
-    parser.add_argument('--pin', type=str, default=None,
-                        help='PIN-код для выполнения команды (не передаётся по умолчанию)')
+    parser.add_argument('--pin', nargs='?', const=PROMPT, default=None,
+                        help='PIN-код для выполнения команды.\n'
+                             'Без значения или без самого параметра PIN будет запрошен,\n'
+                             'чтобы не оставлять его в истории оболочки и списке процессов.\n'
+                             'Для --list-keys без параметра показываются только открытые ключи')
     parser.add_argument('--hash', dest='hash_value', type=str, default=None,
                         help='Готовый хэш для подписи (HEX-строка)')
     parser.add_argument('--data', type=str, default=None,
@@ -105,11 +147,12 @@ def main():
     elif args.show_wallet_info:
         show_wallet_info(args.wallet_id)
     elif args.list_keys:
-        list_keys(args.wallet_id, args.pin)
+        # PIN здесь не обязателен: без него показываются только открытые ключи.
+        list_keys(args.wallet_id, resolve_secret(args.pin, 'PIN-код: ', False))
     elif args.import_key is not None:
         import_keys(
             args.wallet_id,
-            args.pin,
+            resolve_secret(args.pin, 'PIN-код: ', True),
             args.import_key,
             cka_id=args.key_id,
             cka_label=args.key_label,
@@ -120,7 +163,7 @@ def main():
         else:
             generate_key_pair(
                 args.wallet_id,
-                args.pin,
+                resolve_secret(args.pin, 'PIN-код: ', True),
                 args.generate_key,
                 cka_id=args.key_id,
                 cka_label=args.key_label,
@@ -134,16 +177,20 @@ def main():
         else:
             delete_key_pair(
                 args.wallet_id,
-                args.pin,
+                resolve_secret(args.pin, 'PIN-код: ', True),
                 key_number=args.key_number,
                 force=args.force,
             )
     elif args.change_pin:
-        change_pin(args.wallet_id, args.pin, args.new_pin)
+        change_pin(
+            args.wallet_id,
+            resolve_secret(args.pin, 'Текущий PIN-код: ', True),
+            resolve_secret(args.new_pin, 'Новый PIN-код: ', True),
+        )
     elif args.sign:
         sign(
             args.wallet_id,
-            args.pin,
+            resolve_secret(args.pin, 'PIN-код: ', True),
             key_number=args.key_number,
             hash_value=args.hash_value,
             data=args.data,
