@@ -15,6 +15,15 @@
 
 Дальше — то, что нашлось по ходу и требует решения владельца. Не начато.
 
+- [ ] Явный `_layout_` у ctypes-структур с `_pack_`. В логе первого прогона CI (Python
+      3.14.7) три предупреждения: «Due to `_pack_`, the ... Structure will use memory layout
+      compatible with MSVC (Windows). If this is intended, set `_layout_` to `'ms'`. The
+      implicit default is deprecated and slated to become an error in Python 3.19.»
+      Задевает `CK_ATTRIBUTE`, `CK_MECHANISM` и
+      `CK_VENDOR_BIP32_WITH_BIP39_KEY_PAIR_GEN_PARAMS`. Сейчас это только предупреждение,
+      но на Python 3.19 сборка перестанет импортироваться. Выбор `_layout_` — решение о
+      раскладке памяти в вызовах к вендорной библиотеке: ошибка не упадёт, а тихо сдвинет
+      поля, и mock-тесты этого не поймают. Менять только с проверкой на реальном кошельке.
 - [ ] Пин вендорной библиотеки по SHA-256. §7 требует тянуть вендорные бинарники
       «pinned by SHA-256», а `scripts/download_wtpkcs11ecp.py` опирается на тег релиза
       `3rdparty` и id ассета — контрольная сумма не проверяется. Ассет в релизе можно

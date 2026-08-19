@@ -71,6 +71,12 @@ vendor library expects. Adding `_pack_` to the first group unconditionally, or d
 from the second, silently misaligns fields — the calls still return `CKR_OK` and the values
 come back wrong.
 
+CPython now warns on every one of these: *"Due to `_pack_`, the ... Structure will use memory
+layout compatible with MSVC (Windows). If this is intended, set `_layout_` to `'ms'`. The
+implicit default is deprecated and slated to become an error in Python 3.19."* Three of them
+fire on Linux CI today. Picking a `_layout_` is a real decision about wire format, not a
+warning to silence — see the open item in `docs/PLAN.md`.
+
 **Reading an attribute takes two `C_GetAttributeValue` calls.** `safe_get_attributes()`
 asks for the length first (`pValue=None`), allocates, then asks again. It returns `None` for
 the whole object on `CKR_OBJECT_HANDLE_INVALID` and skips an attribute whose length comes
