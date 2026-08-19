@@ -71,11 +71,10 @@ vendor library expects. Adding `_pack_` to the first group unconditionally, or d
 from the second, silently misaligns fields — the calls still return `CKR_OK` and the values
 come back wrong.
 
-CPython now warns on every one of these: *"Due to `_pack_`, the ... Structure will use memory
-layout compatible with MSVC (Windows). If this is intended, set `_layout_` to `'ms'`. The
-implicit default is deprecated and slated to become an error in Python 3.19."* Three of them
-fire on Linux CI today. Picking a `_layout_` is a real decision about wire format, not a
-warning to silence — see the open item in `docs/PLAN.md`.
+Every `_pack_` is paired with `_layout_ = "ms"`, which names the layout `_pack_` already
+forced and silences CPython's deprecation of the implicit default (an import error from
+Python 3.19). **A new `_pack_` must come with `_layout_`** — `tests/test_struct_layout.py`
+fails otherwise, and also pins that the packed structures carry no padding.
 
 **Reading an attribute takes two `C_GetAttributeValue` calls.** `safe_get_attributes()`
 asks for the length first (`pValue=None`), allocates, then asks again. It returns `None` for

@@ -8,15 +8,16 @@
 Владелец распорядился чинить всё четыре пункта; по PIN-коду решение принято: основной режим —
 запрос из stdin, передача через `--pin` остаётся как возможность.
 
-- [~] Явный `_layout_` у ctypes-структур с `_pack_`. В логе CI (Python 3.14.7) три
+- [x] Явный `_layout_` у ctypes-структур с `_pack_`. В логе CI (Python 3.14.7) три
       предупреждения: «Due to `_pack_`, the ... Structure will use memory layout compatible
       with MSVC (Windows). If this is intended, set `_layout_` to `'ms'`. The implicit
       default is deprecated and slated to become an error in Python 3.19.» Задевает
       `CK_ATTRIBUTE`, `CK_MECHANISM` и `CK_VENDOR_BIP32_WITH_BIP39_KEY_PAIR_GEN_PARAMS`,
       а на Windows ещё пять структур, которым `_pack_` выставляется по условию.
       `_layout_ = 'ms'` — это ровно та раскладка, которую `_pack_` уже даёт сегодня, то есть
-      фиксация текущего поведения, а не смена. Проверяем сравнением `sizeof` и смещений всех
-      полей до и после.
+      фиксация текущего поведения, а не смена. Проверено: `sizeof`, выравнивание и смещения
+      всех полей совпали до байта на Python 3.10, 3.11, 3.12 и 3.13. Закреплено тестами
+      `tests/test_struct_layout.py`.
 - [~] Пин вендорной библиотеки по SHA-256 (§7). `scripts/download_wtpkcs11ecp.py` опирается
       на тег релиза `3rdparty` и id ассета, контрольная сумма не проверяется. Ассеты в этом
       релизе уже перезаливали (`updated_at` позже даты создания релиза), тег при этом не

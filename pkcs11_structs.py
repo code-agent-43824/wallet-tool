@@ -85,11 +85,13 @@ CK_VOID_PTR = ctypes.c_void_p
 class CK_VERSION(ctypes.Structure):
     if sys.platform.startswith("win"):
         _pack_ = 1
+        _layout_ = "ms"
     _fields_ = [('major', ctypes.c_ubyte), ('minor', ctypes.c_ubyte)]
 
 class CK_INFO(ctypes.Structure):
     if sys.platform.startswith("win"):
         _pack_ = 1
+        _layout_ = "ms"
     _fields_ = [
         ('cryptokiVersion', CK_VERSION),
         ('manufacturerID', ctypes.c_char * 32),
@@ -101,6 +103,7 @@ class CK_INFO(ctypes.Structure):
 class CK_SLOT_INFO(ctypes.Structure):
     if sys.platform.startswith("win"):
         _pack_ = 1
+        _layout_ = "ms"
     _fields_ = [
         ('slotDescription', ctypes.c_char * 64),
         ('manufacturerID', ctypes.c_char * 32),
@@ -112,6 +115,7 @@ class CK_SLOT_INFO(ctypes.Structure):
 class CK_TOKEN_INFO(ctypes.Structure):
     if sys.platform.startswith("win"):
         _pack_ = 1
+        _layout_ = "ms"
     _fields_ = [
         ('label', ctypes.c_char * 32),
         ('manufacturerID', ctypes.c_char * 32),
@@ -137,6 +141,7 @@ class CK_TOKEN_INFO(ctypes.Structure):
 class CK_TOKEN_INFO_EXTENDED(ctypes.Structure):
     if sys.platform.startswith("win"):
         _pack_ = 1
+        _layout_ = "ms"
     _fields_ = [
         ('ulSizeofThisStructure', ctypes.c_ulong),
         ('ulTokenType', ctypes.c_ulong),
@@ -167,6 +172,7 @@ class CK_TOKEN_INFO_EXTENDED(ctypes.Structure):
 
 class CK_ATTRIBUTE(ctypes.Structure):
     _pack_ = 1
+    _layout_ = "ms"
     _fields_ = [
         ('type', ctypes.c_ulong),
         ('pValue', ctypes.c_void_p),
@@ -176,6 +182,7 @@ class CK_ATTRIBUTE(ctypes.Structure):
 
 class CK_MECHANISM(ctypes.Structure):
     _pack_ = 1
+    _layout_ = "ms"
     _fields_ = [
         ('mechanism', ctypes.c_ulong),
         ('pParameter', ctypes.c_void_p),
@@ -185,6 +192,7 @@ class CK_MECHANISM(ctypes.Structure):
 
 class CK_VENDOR_BIP32_WITH_BIP39_KEY_PAIR_GEN_PARAMS(ctypes.Structure):
     _pack_ = 1
+    _layout_ = "ms"
     _fields_ = [
         ('pPassphrase', ctypes.c_void_p),
         ('ulPassphraseLen', ctypes.c_ulong),
