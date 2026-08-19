@@ -241,9 +241,14 @@ None recorded.
 
 ## Version discipline
 
-Releases are tagged `vMAJOR.MINOR` — `v0.1` through `v0.6` so far — and cut by hand on
-GitHub; publishing one triggers `.github/workflows/release.yml`, which builds and attaches
-the artifacts. There is no changelog.
+`version.py` holds `__version__` and is the only place the number lives; `main.py` imports
+it for `--version`. It carries the version the **next** release will have, so raise it in
+the change that readies the release, not after.
+
+Releases are tagged `vMAJOR.MINOR` matching that number — `v0.1` through `v0.6` so far, and
+`__version__` is now `0.7`. They are cut by hand on GitHub; publishing one triggers
+`.github/workflows/release.yml`, which builds and attaches the artifacts. There is no
+changelog.
 
 ## Deployment
 

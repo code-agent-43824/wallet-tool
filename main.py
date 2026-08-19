@@ -13,6 +13,7 @@ from commands import (
     import_keys,
     sign,
 )
+from version import __version__
 
 # Для Windows: переключаем потоки в UTF-8, чтобы не падать на кириллице
 if sys.platform.startswith("win") and hasattr(sys.stdout, "reconfigure"):
@@ -76,6 +77,12 @@ def main():
         action='help',
         default=argparse.SUPPRESS,
         help='Показать это справочное сообщение и завершить работу',
+    )
+    parser.add_argument(
+        '--version',
+        action='version',
+        version=f'wallet-tool {__version__}',
+        help='Показать версию утилиты и завершить работу',
     )
     parser.add_argument('--library-info', action='store_true',
                         help='Показать информацию о библиотеке (C_GetInfo)')

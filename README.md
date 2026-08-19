@@ -42,4 +42,5 @@ python main.py --sign --key-number 1 --hash 001122334455667788990011223344556677
 python main.py --delete-key --key-number 1 --wallet-id 0 --pin
 python main.py --delete-key --force --wallet-id 0 --pin
 python main.py --change-pin --wallet-id 0 --pin --new-pin
+python main.py --version
 ```

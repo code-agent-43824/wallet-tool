@@ -27,6 +27,7 @@ There is no `pyca/pkcs11` or any other binding — the whole FFI layer is hand-w
 | --- | --- |
 | `main.py` | `argparse` setup, PIN input, and one flat `if/elif` chain that picks the command |
 | `commands.py` | Everything else — 2200 lines, all command logic and console output |
+| `version.py` | `__version__`, the only place the version lives — see `AGENTS.md` |
 | `pkcs11.py` | Loads the shared library; the `@pkcs11_command` decorator |
 | `pkcs11_structs.py` | `CK_*` structures and every PKCS#11 constant the tool uses |
 | `pkcs11_definitions.py` | `define_pkcs11_functions()` — `argtypes`/`restype` for each `C_*` call |
