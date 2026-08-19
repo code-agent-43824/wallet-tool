@@ -1,0 +1,27 @@
+name: Tests
+
+# Запускаем при пуше в любую ветку. Тесты подменяют PKCS#11-библиотеку моком,
+# поэтому wtpkcs11ecp скачивать не нужно.
+on: push
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+          cache-dependency-path: 'requirements-dev.txt'
+
+      - name: Install test dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest
