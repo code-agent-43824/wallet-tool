@@ -1019,7 +1019,7 @@ def run_command_list_keys(pkcs11, wallet_id=0, pin=None):
 @pkcs11_command
 def change_pin(pkcs11, wallet_id=0, old_pin=None, new_pin=None):
     """Сменить пользовательский PIN-код токена."""
-    run_command_change_pin(
+    return run_command_change_pin(
         pkcs11, wallet_id=wallet_id, old_pin=old_pin, new_pin=new_pin
     )
 
@@ -1070,7 +1070,7 @@ def import_keys(
     cka_label="",
 ):
     """Импортировать master node HD-дерева по мнемонической фразе."""
-    run_command_import_keys(
+    return run_command_import_keys(
         pkcs11,
         wallet_id=wallet_id,
         pin=pin,
@@ -1287,7 +1287,7 @@ def generate_key_pair(
     cka_label: str
         Value for the ``CKA_LABEL`` attribute.
     """
-    run_command_generate_key_pair(
+    return run_command_generate_key_pair(
         pkcs11,
         wallet_id=wallet_id,
         pin=pin,
@@ -1661,7 +1661,7 @@ def delete_key_pair(pkcs11, wallet_id=0, pin=None, key_number=None, force=False)
         key pair. ``force`` cannot be used together with ``key_number`` and
         requires a PIN code to be provided.
     """
-    run_command_delete_key_pair(
+    return run_command_delete_key_pair(
         pkcs11,
         wallet_id=wallet_id,
         pin=pin,
@@ -1767,7 +1767,7 @@ def sign(
 ):
     """Подписать данные приватным ключом, выбранным по ``key-number``."""
 
-    run_command_sign(
+    return run_command_sign(
         pkcs11,
         wallet_id=wallet_id,
         pin=pin,

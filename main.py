@@ -2,6 +2,7 @@ import argparse
 import getpass
 import sys
 from commands import (
+    EXIT_ERROR,
     library_info,
     list_slots,
     list_wallets,
@@ -146,64 +147,68 @@ def main():
     args = parser.parse_args()
 
     if args.library_info:
-        library_info()
-    elif args.list_slots:
-        list_slots()
-    elif args.list_wallets:
-        list_wallets()
-    elif args.show_wallet_info:
-        show_wallet_info(args.wallet_id)
-    elif args.list_keys:
+        return library_info()
+    if args.list_slots:
+        return list_slots()
+    if args.list_wallets:
+        return list_wallets()
+    if args.show_wallet_info:
+        return show_wallet_info(args.wallet_id)
+    if args.list_keys:
         # PIN здесь не обязателен: без него показываются только открытые ключи.
-        list_keys(args.wallet_id, resolve_secret(args.pin, 'PIN-код: ', False))
-    elif args.import_key is not None:
-        import_keys(
+        return list_keys(args.wallet_id, resolve_secret(args.pin, 'PIN-код: ', False))
+    if args.import_key is not None:
+        return import_keys(
             args.wallet_id,
             resolve_secret(args.pin, 'PIN-код: ', True),
             args.import_key,
             cka_id=args.key_id,
             cka_label=args.key_label,
         )
-    elif args.generate_key:
+    if args.generate_key:
         if not args.key_id or not args.key_label:
             print('Необходимо указать --key-id и --key-label для генерации ключа', file=sys.stderr)
-        else:
-            generate_key_pair(
-                args.wallet_id,
-                resolve_secret(args.pin, 'PIN-код: ', True),
-                args.generate_key,
-                cka_id=args.key_id,
-                cka_label=args.key_label,
-                get_mnemonic=args.get_mnemonic,
-            )
-    elif args.delete_key:
+            return EXIT_ERROR
+        return generate_key_pair(
+            args.wallet_id,
+            resolve_secret(args.pin, 'PIN-код: ', True),
+            args.generate_key,
+            cka_id=args.key_id,
+            cka_label=args.key_label,
+            get_mnemonic=args.get_mnemonic,
+        )
+    if args.delete_key:
         if args.force and args.key_number is not None:
             print('Нельзя использовать одновременно параметры --force и --key-number', file=sys.stderr)
-        elif not args.force and args.key_number is None:
+            return EXIT_ERROR
+        if not args.force and args.key_number is None:
             print('Для удаления необходимо указать параметр --key-number', file=sys.stderr)
-        else:
-            delete_key_pair(
-                args.wallet_id,
-                resolve_secret(args.pin, 'PIN-код: ', True),
-                key_number=args.key_number,
-                force=args.force,
-            )
-    elif args.change_pin:
-        change_pin(
+            return EXIT_ERROR
+        return delete_key_pair(
+            args.wallet_id,
+            resolve_secret(args.pin, 'PIN-код: ', True),
+            key_number=args.key_number,
+            force=args.force,
+        )
+    if args.change_pin:
+        return change_pin(
             args.wallet_id,
             resolve_secret(args.pin, 'Текущий PIN-код: ', True),
             resolve_secret(args.new_pin, 'Новый PIN-код: ', True),
         )
-    elif args.sign:
-        sign(
+    if args.sign:
+        return sign(
             args.wallet_id,
             resolve_secret(args.pin, 'PIN-код: ', True),
             key_number=args.key_number,
             hash_value=args.hash_value,
             data=args.data,
         )
-    else:
-        parser.print_help()
+
+    # Команда не выбрана — это ошибка использования, а не успешный запуск.
+    parser.print_help()
+    return EXIT_ERROR
+
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
