@@ -992,74 +992,37 @@ def change_pin(pkcs11, wallet_id=0, old_pin=None, new_pin=None):
 def run_command_change_pin(pkcs11, wallet_id=0, old_pin=None, new_pin=None):
     define_pkcs11_functions(pkcs11)
 
-    session = ctypes.c_ulong()
-    initialized = False
-    session_opened = False
-    logged_in = False
-    had_error = False
+    # Сессию открываем без входа: сперва надо убедиться, что заданы оба PIN-кода,
+    # и только потом предъявлять старый.
+    with wallet_session(pkcs11, wallet_id) as session:
+        if session is None:
+            return EXIT_ERROR
 
-    try:
-        rv = pkcs11.C_Initialize(None)
-        if rv != CKR_OK:
-            print(f'C_Initialize вернула ошибку: 0x{rv:08X}')
-            had_error = True
-        else:
-            initialized = True
+        if old_pin is None or new_pin is None:
+            print('Необходимо указать текущий и новый PIN-коды', file=sys.stderr)
+            return EXIT_ERROR
 
-        if not had_error:
-            rv = pkcs11.C_OpenSession(
-                wallet_id,
-                CKF_SERIAL_SESSION | CKF_RW_SESSION,
-                None,
-                None,
-                ctypes.byref(session),
+        old_pin_bytes = old_pin.encode('utf-8')
+        new_pin_bytes = new_pin.encode('utf-8')
+
+        with logged_in_user(pkcs11, session, old_pin) as entered:
+            if not entered:
+                return EXIT_ERROR
+
+            rv = pkcs11.C_SetPIN(
+                session,
+                old_pin_bytes,
+                len(old_pin_bytes),
+                new_pin_bytes,
+                len(new_pin_bytes),
             )
-            if rv == CKR_TOKEN_NOT_PRESENT:
-                print('Нет подключенного кошелька, подключите кошелек')
-                had_error = True
-            elif rv != CKR_OK:
-                print(f'C_OpenSession вернула ошибку: 0x{rv:08X}')
-                had_error = True
-            else:
-                session_opened = True
+            if rv != CKR_OK:
+                print(f'C_SetPIN вернула ошибку: 0x{rv:08X}')
+                return EXIT_ERROR
 
-        if session_opened:
-            if old_pin is None or new_pin is None:
-                print(
-                    'Необходимо указать текущий и новый PIN-коды',
-                    file=sys.stderr,
-                )
-                had_error = True
-            else:
-                old_pin_bytes = old_pin.encode('utf-8')
-                new_pin_bytes = new_pin.encode('utf-8')
+            print('PIN-код успешно изменён.')
 
-                rv = pkcs11.C_Login(
-                    session, CKU_USER, old_pin_bytes, len(old_pin_bytes)
-                )
-                if rv != CKR_OK:
-                    print(f'C_Login вернула ошибку: 0x{rv:08X}')
-                    had_error = True
-                else:
-                    logged_in = True
-                    rv = pkcs11.C_SetPIN(
-                        session,
-                        old_pin_bytes,
-                        len(old_pin_bytes),
-                        new_pin_bytes,
-                        len(new_pin_bytes),
-                    )
-                    if rv != CKR_OK:
-                        print(f'C_SetPIN вернула ошибку: 0x{rv:08X}')
-                    else:
-                        print('PIN-код успешно изменён.')
-    finally:
-        if logged_in:
-            pkcs11.C_Logout(session)
-        if session_opened:
-            pkcs11.C_CloseSession(session)
-        if initialized:
-            pkcs11.C_Finalize(None)
+    return EXIT_OK
 
 
 @pkcs11_command
@@ -1092,12 +1055,8 @@ def run_command_import_keys(
 ):
     define_pkcs11_functions(pkcs11)
 
-    session = ctypes.c_ulong()
-    initialized = False
-    session_opened = False
-    logged_in = False
-    had_error = False
-
+    # Всё, что придётся затереть в finally: мнемоника, seed и выведенный из них
+    # мастер-ключ. bytearray затираем поэлементно, ctypes-буферы — через memset.
     mnemonic_bytes = None
     seed = None
     hmac_result = None
@@ -1110,85 +1069,60 @@ def run_command_import_keys(
     label_buf = None
 
     try:
-        rv = pkcs11.C_Initialize(None)
-        if rv != CKR_OK:
-            print(f'C_Initialize вернула ошибку: 0x{rv:08X}')
-            had_error = True
-        else:
-            initialized = True
+        with wallet_session(pkcs11, wallet_id) as session:
+            if session is None:
+                return EXIT_ERROR
 
-        if not had_error:
-            rv = pkcs11.C_OpenSession(
-                wallet_id,
-                CKF_SERIAL_SESSION | CKF_RW_SESSION,
-                None,
-                None,
-                ctypes.byref(session),
-            )
-            if rv == CKR_TOKEN_NOT_PRESENT:
-                print('Нет подключенного кошелька, подключите кошелек')
-                had_error = True
-            elif rv != CKR_OK:
-                print(f'C_OpenSession вернула ошибку: 0x{rv:08X}')
-                had_error = True
-            else:
-                session_opened = True
-
-        if session_opened:
             if not pin:
                 print(
                     'Необходимо указать PIN-код для импорта ключей',
                     file=sys.stderr,
                 )
-                had_error = True
             if mnemonic is None:
                 print(
                     'Необходимо указать мнемоническую фразу для импорта ключей',
                     file=sys.stderr,
                 )
-                had_error = True
+            if not pin or mnemonic is None:
+                return EXIT_ERROR
 
-        if session_opened and not had_error:
             sanitized = " ".join(mnemonic.strip().split())
             if not sanitized:
                 print('Мнемоническая фраза не должна быть пустой', file=sys.stderr)
-                had_error = True
-            else:
-                words = sanitized.split(" ")
-                if len(words) not in {12, 15, 18, 21, 24}:
-                    print(
-                        'Мнемоническая фраза должна содержать 12, 15, 18, 21 или 24 слова',
-                        file=sys.stderr,
-                    )
-                    had_error = True
-                else:
-                    normalized = unicodedata.normalize("NFKD", sanitized)
-                    mnemonic_bytes = bytearray(normalized.encode('utf-8'))
-                    seed = bytearray(
-                        hashlib.pbkdf2_hmac(
-                            'sha512', mnemonic_bytes, b'mnemonic', 2048, dklen=64
-                        )
-                    )
-                    hmac_result = bytearray(
-                        hmac.new(b'Bitcoin seed', seed, hashlib.sha512).digest()
-                    )
-                    master_priv = bytearray(hmac_result[:32])
-                    chain_code = bytearray(hmac_result[32:])
+                return EXIT_ERROR
 
-        if session_opened and not had_error:
-            pin_bytes = pin.encode('utf-8')
-            rv = pkcs11.C_Login(session, CKU_USER, pin_bytes, len(pin_bytes))
-            if rv != CKR_OK:
-                print(f'C_Login вернула ошибку: 0x{rv:08X}')
-                had_error = True
-            else:
-                logged_in = True
+            words = sanitized.split(" ")
+            if len(words) not in {12, 15, 18, 21, 24}:
+                print(
+                    'Мнемоническая фраза должна содержать 12, 15, 18, 21 или 24 слова',
+                    file=sys.stderr,
+                )
+                return EXIT_ERROR
 
-        if logged_in and not had_error:
+            # BIP39: seed = PBKDF2-HMAC-SHA512(фраза, "mnemonic", 2048 итераций),
+            # затем HMAC-SHA512("Bitcoin seed", seed) делится пополам на мастер-ключ
+            # и chain code.
+            normalized = unicodedata.normalize("NFKD", sanitized)
+            mnemonic_bytes = bytearray(normalized.encode('utf-8'))
+            seed = bytearray(
+                hashlib.pbkdf2_hmac(
+                    'sha512', mnemonic_bytes, b'mnemonic', 2048, dklen=64
+                )
+            )
+            hmac_result = bytearray(
+                hmac.new(b'Bitcoin seed', seed, hashlib.sha512).digest()
+            )
+            master_priv = bytearray(hmac_result[:32])
+            chain_code = bytearray(hmac_result[32:])
+
             if len(master_priv) != 32 or len(chain_code) != 32:
                 print('Некорректная длина master key или chain code', file=sys.stderr)
-                had_error = True
-            else:
+                return EXIT_ERROR
+
+            with logged_in_user(pkcs11, session, pin) as entered:
+                if not entered:
+                    return EXIT_ERROR
+
                 ck_true = ctypes.c_ubyte(1)
                 cko_private_key = ctypes.c_ulong(CKO_PRIVATE_KEY)
                 key_type = ctypes.c_ulong(CKK_VENDOR_BIP32)
@@ -1276,32 +1210,27 @@ def run_command_import_keys(
 
                 if rv != CKR_OK:
                     print(f'Ошибка создания объекта: 0x{rv:08X}')
-                else:
-                    print('Мастер-ключ успешно импортирован.')
-    finally:
-        if logged_in:
-            pkcs11.C_Logout(session)
-        if session_opened:
-            pkcs11.C_CloseSession(session)
-        if initialized:
-            pkcs11.C_Finalize(None)
+                    return EXIT_ERROR
 
+                print('Мастер-ключ успешно импортирован.')
+        return EXIT_OK
+    finally:
         _zero_bytearray(mnemonic_bytes)
         _zero_bytearray(seed)
         _zero_bytearray(hmac_result)
         _zero_bytearray(master_priv)
         _zero_bytearray(chain_code)
 
-        if master_priv_buf is not None:
-            ctypes.memset(master_priv_buf, 0, ctypes.sizeof(master_priv_buf))
-        if chain_code_buf is not None:
-            ctypes.memset(chain_code_buf, 0, ctypes.sizeof(chain_code_buf))
-        if ec_params_buf is not None:
-            ctypes.memset(ec_params_buf, 0, ctypes.sizeof(ec_params_buf))
-        if id_buf is not None:
-            ctypes.memset(id_buf, 0, ctypes.sizeof(id_buf))
-        if label_buf is not None:
-            ctypes.memset(label_buf, 0, ctypes.sizeof(label_buf))
+        for buffer in (
+            master_priv_buf,
+            chain_code_buf,
+            ec_params_buf,
+            id_buf,
+            label_buf,
+        ):
+            if buffer is not None:
+                ctypes.memset(buffer, 0, ctypes.sizeof(buffer))
+
 
 
 @pkcs11_command
