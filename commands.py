@@ -536,6 +536,41 @@ def sort_key_pairs(pairs):
     )
 
 
+def read_key_id(pkcs11, session, handle):
+    """Прочитать CKA_ID объекта. None, если атрибута нет или он пуст."""
+
+    attrs = safe_get_attributes(pkcs11, session, handle, [CKA_ID])
+    if not attrs:
+        return None
+    return attrs.get(CKA_ID) or None
+
+
+def collect_key_pairs(pkcs11, session):
+    """Собрать пары ключей и вернуть их в порядке key-number.
+
+    Открытый и закрытый ключи объединяются в пару по совпадающему CKA_ID. Первый
+    элемент списка — ключ номер 1. Так нумеруют удаление и подпись.
+    """
+
+    pairs = []
+
+    def add_handle(kind, handle):
+        key_id = read_key_id(pkcs11, session, handle)
+        for entry in pairs:
+            if entry['key_id'] == key_id and kind not in entry:
+                entry[kind] = handle
+                return
+        pairs.append({'key_id': key_id, kind: handle})
+
+    for handle in find_objects(pkcs11, session, CKO_PUBLIC_KEY):
+        add_handle('public', handle)
+
+    for handle in find_objects(pkcs11, session, CKO_PRIVATE_KEY):
+        add_handle('private', handle)
+
+    return [pair for _, pair in sort_key_pairs(pairs)]
+
+
 @pkcs11_command
 def show_wallet_info(pkcs11, wallet_id=0):
     """Получить подробную информацию о кошельке."""
@@ -1274,72 +1309,43 @@ def run_command_generate_key_pair(
 ):
     define_pkcs11_functions(pkcs11)
 
-    session = ctypes.c_ulong()
-    initialized = False
-    session_opened = False
-    logged_in = False
-    had_error = False
+    # ctypes не удерживает буферы, на которые ссылается CK_ATTRIBUTE.pValue,
+    # поэтому складываем их сюда: иначе их освободит сборщик мусора до вызова.
     buffers = []
 
-    try:
-        rv = pkcs11.C_Initialize(None)
-        if rv != CKR_OK:
-            print(f'C_Initialize вернула ошибку: 0x{rv:08X}')
-            had_error = True
-        else:
-            initialized = True
+    with wallet_session(pkcs11, wallet_id) as session:
+        if session is None:
+            return EXIT_ERROR
 
-        if not had_error:
-            rv = pkcs11.C_OpenSession(
-                wallet_id,
-                CKF_SERIAL_SESSION | CKF_RW_SESSION,
-                None,
-                None,
-                ctypes.byref(session),
+        had_error = False
+        if not cka_id or not cka_label:
+            print(
+                'Необходимо указать key-id и key-label для генерации ключа',
+                file=sys.stderr,
             )
-            if rv == CKR_TOKEN_NOT_PRESENT:
-                print('Нет подключенного кошелька, подключите кошелек')
-                had_error = True
-            elif rv != CKR_OK:
-                print(f'C_OpenSession вернула ошибку: 0x{rv:08X}')
-                had_error = True
-            else:
-                session_opened = True
+            had_error = True
+        if not pin:
+            print(
+                'Необходимо указать PIN-код для генерации ключа',
+                file=sys.stderr,
+            )
+            had_error = True
+        if get_mnemonic and algorithm != 'secp256':
+            print(
+                '--get-mnemonic доступен только для алгоритма secp256',
+                file=sys.stderr,
+            )
+            had_error = True
+        if algorithm not in {'rsa1024', 'rsa2048', 'secp256', 'ed25519', 'gost'}:
+            print('Неверный тип ключа')
+            had_error = True
+        if had_error:
+            return EXIT_ERROR
 
-        if session_opened:
-            if not cka_id or not cka_label:
-                print(
-                    'Необходимо указать key-id и key-label для генерации ключа',
-                    file=sys.stderr,
-                )
-                had_error = True
-            if not pin:
-                print(
-                    'Необходимо указать PIN-код для генерации ключа',
-                    file=sys.stderr,
-                )
-                had_error = True
-            if get_mnemonic and algorithm != 'secp256':
-                print(
-                    '--get-mnemonic доступен только для алгоритма secp256',
-                    file=sys.stderr,
-                )
-                had_error = True
-            if algorithm not in {'rsa1024', 'rsa2048', 'secp256', 'ed25519', 'gost'}:
-                print('Неверный тип ключа')
-                had_error = True
+        with logged_in_user(pkcs11, session, pin) as entered:
+            if not entered:
+                return EXIT_ERROR
 
-        if session_opened and not had_error:
-            pin_bytes = pin.encode('utf-8')
-            rv = pkcs11.C_Login(session, CKU_USER, pin_bytes, len(pin_bytes))
-            if rv != CKR_OK:
-                print(f'C_Login вернула ошибку: 0x{rv:08X}')
-                had_error = True
-            else:
-                logged_in = True
-
-        mnemonic_attr = None
-        if logged_in and not had_error:
             mechanism = CK_MECHANISM(mechanism=0, pParameter=None, ulParameterLen=0)
 
             true_val = ctypes.c_ubyte(1)
@@ -1559,13 +1565,35 @@ def run_command_generate_key_pair(
 
             if rv != CKR_OK:
                 print(f'Ошибка генерации ключевой пары: 0x{rv:08X}')
-            else:
-                print('Ключевая пара успешно сгенерирована.')
-                if get_mnemonic:
-                    mnemonic_attr = CK_ATTRIBUTE(
-                        type=CKA_VENDOR_BIP39_MNEMONIC,
-                        pValue=None,
-                        ulValueLen=0,
+                return EXIT_ERROR
+
+            print('Ключевая пара успешно сгенерирована.')
+            if get_mnemonic:
+                mnemonic_attr = CK_ATTRIBUTE(
+                    type=CKA_VENDOR_BIP39_MNEMONIC,
+                    pValue=None,
+                    ulValueLen=0,
+                )
+                rv_attr = pkcs11.C_GetAttributeValue(
+                    session,
+                    priv_handle.value,
+                    ctypes.byref(mnemonic_attr),
+                    1,
+                )
+                if rv_attr != CKR_OK:
+                    print(
+                        f'Ошибка получения атрибута: 0x{rv_attr:08X}',
+                        file=sys.stderr,
+                    )
+                elif mnemonic_attr.ulValueLen == 0:
+                    print(
+                        'Мнемоническая фраза не возвращена токеном.',
+                        file=sys.stderr,
+                    )
+                else:
+                    mnemonic_buf = (ctypes.c_char * mnemonic_attr.ulValueLen)()
+                    mnemonic_attr.pValue = ctypes.cast(
+                        mnemonic_buf, ctypes.c_void_p
                     )
                     rv_attr = pkcs11.C_GetAttributeValue(
                         session,
@@ -1578,74 +1606,48 @@ def run_command_generate_key_pair(
                             f'Ошибка получения атрибута: 0x{rv_attr:08X}',
                             file=sys.stderr,
                         )
-                    elif mnemonic_attr.ulValueLen == 0:
-                        print(
-                            'Мнемоническая фраза не возвращена токеном.',
-                            file=sys.stderr,
-                        )
                     else:
-                        mnemonic_buf = (ctypes.c_char * mnemonic_attr.ulValueLen)()
-                        mnemonic_attr.pValue = ctypes.cast(
-                            mnemonic_buf, ctypes.c_void_p
+                        mnemonic_bytes = ctypes.string_at(
+                            mnemonic_attr.pValue, mnemonic_attr.ulValueLen
                         )
-                        rv_attr = pkcs11.C_GetAttributeValue(
+                        mnemonic_text = mnemonic_bytes.decode(
+                            'utf-8', errors='replace'
+                        )
+                        print("\n=============================================")
+                        print(
+                            'ЗАПИШИТЕ МНЕМОНИЧЕСКУЮ ФРАЗУ И СОХРАНИТЕ ЕЁ.'
+                        )
+                        print(
+                            'ПОТЕРЯВ ФРАЗУ ВЫ НЕВОССТАНОВИМО ПОТЕРЯЕТЕ ДОСТУП К КЛЮЧАМ.\n'
+                        )
+                        print(mnemonic_text)
+                        print('=============================================\n')
+
+                        ck_false_local = ctypes.c_ubyte(0)
+                        lock_attr = CK_ATTRIBUTE(
+                            type=CKA_VENDOR_BIP39_MNEMONIC_IS_EXTRACTABLE,
+                            pValue=ctypes.cast(
+                                ctypes.pointer(ck_false_local), ctypes.c_void_p
+                            ),
+                            ulValueLen=1,
+                        )
+                        rv_lock = pkcs11.C_SetAttributeValue(
                             session,
                             priv_handle.value,
-                            ctypes.byref(mnemonic_attr),
+                            ctypes.byref(lock_attr),
                             1,
                         )
-                        if rv_attr != CKR_OK:
+                        if rv_lock != CKR_OK:
                             print(
-                                f'Ошибка получения атрибута: 0x{rv_attr:08X}',
+                                f'Ошибка установки атрибутов: 0x{rv_lock:08X}',
                                 file=sys.stderr,
                             )
-                        else:
-                            mnemonic_bytes = ctypes.string_at(
-                                mnemonic_attr.pValue, mnemonic_attr.ulValueLen
-                            )
-                            mnemonic_text = mnemonic_bytes.decode(
-                                'utf-8', errors='replace'
-                            )
-                            print("\n=============================================")
-                            print(
-                                'ЗАПИШИТЕ МНЕМОНИЧЕСКУЮ ФРАЗУ И СОХРАНИТЕ ЕЁ.'
-                            )
-                            print(
-                                'ПОТЕРЯВ ФРАЗУ ВЫ НЕВОССТАНОВИМО ПОТЕРЯЕТЕ ДОСТУП К КЛЮЧАМ.\n'
-                            )
-                            print(mnemonic_text)
-                            print('=============================================\n')
 
-                            ck_false_local = ctypes.c_ubyte(0)
-                            lock_attr = CK_ATTRIBUTE(
-                                type=CKA_VENDOR_BIP39_MNEMONIC_IS_EXTRACTABLE,
-                                pValue=ctypes.cast(
-                                    ctypes.pointer(ck_false_local), ctypes.c_void_p
-                                ),
-                                ulValueLen=1,
-                            )
-                            rv_lock = pkcs11.C_SetAttributeValue(
-                                session,
-                                priv_handle.value,
-                                ctypes.byref(lock_attr),
-                                1,
-                            )
-                            if rv_lock != CKR_OK:
-                                print(
-                                    f'Ошибка установки атрибутов: 0x{rv_lock:08X}',
-                                    file=sys.stderr,
-                                )
+                        ctypes.memset(
+                            mnemonic_attr.pValue, 0, mnemonic_attr.ulValueLen
+                        )
 
-                            ctypes.memset(
-                                mnemonic_attr.pValue, 0, mnemonic_attr.ulValueLen
-                            )
-    finally:
-        if logged_in:
-            pkcs11.C_Logout(session)
-        if session_opened:
-            pkcs11.C_CloseSession(session)
-        if initialized:
-            pkcs11.C_Finalize(None)
+    return EXIT_OK
 
 
 @pkcs11_command
@@ -1673,117 +1675,32 @@ def run_command_delete_key_pair(
 ):
     define_pkcs11_functions(pkcs11)
 
-    session = ctypes.c_ulong()
-    initialized = False
-    session_opened = False
-    logged_in = False
-    had_error = False
+    with wallet_session(pkcs11, wallet_id) as session:
+        if session is None:
+            return EXIT_ERROR
 
-    try:
-        rv = pkcs11.C_Initialize(None)
-        if rv != CKR_OK:
-            print(f'C_Initialize вернула ошибку: 0x{rv:08X}')
+        had_error = False
+        if not pin:
+            print('Необходимо указать PIN-код для удаления ключей', file=sys.stderr)
             had_error = True
-        else:
-            initialized = True
-
-        if not had_error:
-            rv = pkcs11.C_OpenSession(
-                wallet_id,
-                CKF_SERIAL_SESSION | CKF_RW_SESSION,
-                None,
-                None,
-                ctypes.byref(session),
+        if force and key_number is not None:
+            print(
+                'Параметры --force и --key-number не могут использоваться одновременно',
+                file=sys.stderr,
             )
-            if rv == CKR_TOKEN_NOT_PRESENT:
-                print('Нет подключенного кошелька, подключите кошелек')
-                had_error = True
-            elif rv != CKR_OK:
-                print(f'C_OpenSession вернула ошибку: 0x{rv:08X}')
-                had_error = True
-            else:
-                session_opened = True
+            had_error = True
+        if not force and key_number is None:
+            print(
+                'Необходимо указать параметр --key-number для удаления ключа',
+                file=sys.stderr,
+            )
+            had_error = True
+        if had_error:
+            return EXIT_ERROR
 
-        if session_opened:
-            if not pin:
-                print('Необходимо указать PIN-код для удаления ключей', file=sys.stderr)
-                had_error = True
-            if force and key_number is not None:
-                print(
-                    'Параметры --force и --key-number не могут использоваться одновременно',
-                    file=sys.stderr,
-                )
-                had_error = True
-            if not force and key_number is None:
-                print(
-                    'Необходимо указать параметр --key-number для удаления ключа',
-                    file=sys.stderr,
-                )
-                had_error = True
-
-        if session_opened and not had_error:
-            pin_bytes = pin.encode('utf-8')
-            rv = pkcs11.C_Login(session, CKU_USER, pin_bytes, len(pin_bytes))
-            if rv != CKR_OK:
-                print(f'C_Login вернула ошибку: 0x{rv:08X}')
-                had_error = True
-            else:
-                logged_in = True
-
-        if logged_in and not had_error:
-
-            def search_objects(obj_class):
-                handles = []
-                class_val = ctypes.c_ulong(obj_class)
-                attr = CK_ATTRIBUTE(
-                    type=CKA_CLASS,
-                    pValue=ctypes.cast(ctypes.pointer(class_val), ctypes.c_void_p),
-                    ulValueLen=ctypes.sizeof(class_val),
-                )
-                template = (CK_ATTRIBUTE * 1)(attr)
-                rv_local = pkcs11.C_FindObjectsInit(session, template, 1)
-                if rv_local != CKR_OK:
-                    print(f'C_FindObjectsInit вернула ошибку: 0x{rv_local:08X}')
-                    return handles
-
-                obj = ctypes.c_ulong()
-                count = ctypes.c_ulong()
-                while True:
-                    rv_local = pkcs11.C_FindObjects(
-                        session, ctypes.byref(obj), 1, ctypes.byref(count)
-                    )
-                    if rv_local != CKR_OK:
-                        print(f'C_FindObjects вернула ошибку: 0x{rv_local:08X}')
-                        break
-                    if count.value == 0:
-                        break
-                    handles.append(obj.value)
-
-                rv_final = pkcs11.C_FindObjectsFinal(session)
-                if rv_final != CKR_OK:
-                    print(f'C_FindObjectsFinal вернула ошибку: 0x{rv_final:08X}')
-
-                return handles
-
-            def get_id(handle):
-                attr = CK_ATTRIBUTE(type=CKA_ID, pValue=None, ulValueLen=0)
-                rv_local = pkcs11.C_GetAttributeValue(
-                    session, ctypes.c_ulong(handle), ctypes.byref(attr), 1
-                )
-                if rv_local != CKR_OK:
-                    print(f'Ошибка получения атрибута: 0x{rv_local:08X}', file=sys.stderr)
-                    return None
-                if attr.ulValueLen == 0:
-                    return None
-                buf = (ctypes.c_ubyte * attr.ulValueLen)()
-                attr.pValue = ctypes.cast(buf, ctypes.c_void_p)
-                rv_local = pkcs11.C_GetAttributeValue(
-                    session, ctypes.c_ulong(handle), ctypes.byref(attr), 1
-                )
-                if rv_local != CKR_OK:
-                    print(f'Ошибка получения атрибута: 0x{rv_local:08X}', file=sys.stderr)
-                    return None
-                return bytes(buf)
+        with logged_in_user(pkcs11, session, pin) as entered:
+            if not entered:
+                return EXIT_ERROR
 
             if force:
                 handles_to_delete = []
@@ -1818,31 +1735,12 @@ def run_command_delete_key_pair(
                     if rv_local not in (CKR_OK, CKR_OBJECT_HANDLE_INVALID):
                         print(f'Ошибка удаления объекта: 0x{rv_local:08X}')
             else:
-                pairs = []
+                pairs = collect_key_pairs(pkcs11, session)
 
-                def add_handle(kind, handle):
-                    key_id = get_id(handle)
-                    for entry in pairs:
-                        if entry['key_id'] == key_id and kind not in entry:
-                            entry[kind] = handle
-                            return
-                    pairs.append({'key_id': key_id, kind: handle})
-
-                for h in find_objects(pkcs11, session, CKO_PUBLIC_KEY):
-                    add_handle('public', h)
-
-                for h in find_objects(pkcs11, session, CKO_PRIVATE_KEY):
-                    add_handle('private', h)
-
-                sorted_pairs = sorted(
-                    enumerate(pairs),
-                    key=lambda item: ((item[1]['key_id'] or b''), item[0]),
-                )
-
-                if key_number < 1 or key_number > len(sorted_pairs):
+                if key_number < 1 or key_number > len(pairs):
                     print('Ключ с таким номером не найден')
                 else:
-                    pair = sorted_pairs[key_number - 1][1]
+                    pair = pairs[key_number - 1]
                     handles_to_delete = []
                     if 'private' in pair:
                         handles_to_delete.append(pair['private'])
@@ -1854,13 +1752,8 @@ def run_command_delete_key_pair(
                         )
                         if rv_local not in (CKR_OK, CKR_OBJECT_HANDLE_INVALID):
                             print(f'Ошибка удаления объекта: 0x{rv_local:08X}')
-    finally:
-        if logged_in:
-            pkcs11.C_Logout(session)
-        if session_opened:
-            pkcs11.C_CloseSession(session)
-        if initialized:
-            pkcs11.C_Finalize(None)
+
+    return EXIT_OK
 
 
 @pkcs11_command
@@ -1899,11 +1792,11 @@ def run_command_sign(
             'Для подписи необходимо указать параметр --key-number',
             file=sys.stderr,
         )
-        return
+        return EXIT_ERROR
 
     if not pin:
         print('Необходимо указать PIN-код для выполнения подписи', file=sys.stderr)
-        return
+        return EXIT_ERROR
 
     if (hash_value is None and data is None) or (
         hash_value is not None and data is not None
@@ -1912,122 +1805,23 @@ def run_command_sign(
             'Нужно указать ровно один из параметров --hash или --data',
             file=sys.stderr,
         )
-        return
+        return EXIT_ERROR
 
-    session = ctypes.c_ulong()
-    initialized = False
-    session_opened = False
-    logged_in = False
-    try:
-        rv = pkcs11.C_Initialize(None)
-        if rv != CKR_OK:
-            print(f'C_Initialize вернула ошибку: 0x{rv:08X}')
-            return
-        initialized = True
+    # Все проверки уже выполнены, поэтому входим сразу при открытии сессии.
+    with wallet_session(pkcs11, wallet_id, pin) as session:
+        if session is None:
+            return EXIT_ERROR
 
-        rv = pkcs11.C_OpenSession(
-            wallet_id,
-            CKF_SERIAL_SESSION | CKF_RW_SESSION,
-            None,
-            None,
-            ctypes.byref(session),
-        )
-        if rv == CKR_TOKEN_NOT_PRESENT:
-            print('Нет подключенного кошелька, подключите кошелек')
-            return
-        if rv != CKR_OK:
-            print(f'C_OpenSession вернула ошибку: 0x{rv:08X}')
-            return
-        session_opened = True
+        pairs = collect_key_pairs(pkcs11, session)
 
-        pin_bytes = pin.encode('utf-8')
-        rv = pkcs11.C_Login(session, CKU_USER, pin_bytes, len(pin_bytes))
-        if rv != CKR_OK:
-            print(f'C_Login вернула ошибку: 0x{rv:08X}')
-            return
-        logged_in = True
-
-        def search_objects(obj_class):
-            handles = []
-            class_val = ctypes.c_ulong(obj_class)
-            template = (CK_ATTRIBUTE * 1)(
-                CK_ATTRIBUTE(
-                    type=CKA_CLASS,
-                    pValue=ctypes.cast(ctypes.pointer(class_val), ctypes.c_void_p),
-                    ulValueLen=ctypes.sizeof(class_val),
-                )
-            )
-            rv_local = pkcs11.C_FindObjectsInit(session, template, 1)
-            if rv_local != CKR_OK:
-                print(f'C_FindObjectsInit вернула ошибку: 0x{rv_local:08X}')
-                return handles
-
-            try:
-                obj = ctypes.c_ulong()
-                count = ctypes.c_ulong()
-                while True:
-                    rv_local = pkcs11.C_FindObjects(
-                        session, ctypes.byref(obj), 1, ctypes.byref(count)
-                    )
-                    if rv_local != CKR_OK:
-                        print(f'C_FindObjects вернула ошибку: 0x{rv_local:08X}')
-                        break
-                    if count.value == 0:
-                        break
-                    handles.append(obj.value)
-            finally:
-                rv_final = pkcs11.C_FindObjectsFinal(session)
-                if rv_final != CKR_OK:
-                    print(f'C_FindObjectsFinal вернула ошибку: 0x{rv_final:08X}')
-
-            return handles
-
-        def get_id(handle):
-            attr = CK_ATTRIBUTE(type=CKA_ID, pValue=None, ulValueLen=0)
-            rv_local = pkcs11.C_GetAttributeValue(
-                session, ctypes.c_ulong(handle), ctypes.byref(attr), 1
-            )
-            if rv_local != CKR_OK:
-                return None
-            if attr.ulValueLen == 0:
-                return None
-            buf = (ctypes.c_ubyte * attr.ulValueLen)()
-            attr.pValue = ctypes.cast(buf, ctypes.c_void_p)
-            rv_local = pkcs11.C_GetAttributeValue(
-                session, ctypes.c_ulong(handle), ctypes.byref(attr), 1
-            )
-            if rv_local != CKR_OK:
-                return None
-            return bytes(buf)
-
-        pairs = []
-
-        def add_handle(kind, handle):
-            key_id = get_id(handle)
-            for entry in pairs:
-                if entry['key_id'] == key_id and kind not in entry:
-                    entry[kind] = handle
-                    return
-            pairs.append({'key_id': key_id, kind: handle})
-
-        for h in find_objects(pkcs11, session, CKO_PUBLIC_KEY):
-            add_handle('public', h)
-
-        for h in find_objects(pkcs11, session, CKO_PRIVATE_KEY):
-            add_handle('private', h)
-
-        sorted_pairs = sorted(
-            enumerate(pairs), key=lambda item: ((item[1]['key_id'] or b''), item[0])
-        )
-
-        if key_number < 1 or key_number > len(sorted_pairs):
+        if key_number < 1 or key_number > len(pairs):
             print('Ключ с таким номером не найден', file=sys.stderr)
-            return
+            return EXIT_ERROR
 
-        pair = sorted_pairs[key_number - 1][1]
+        pair = pairs[key_number - 1]
         if 'private' not in pair:
             print('Для выбранного номера не найден приватный ключ', file=sys.stderr)
-            return
+            return EXIT_ERROR
 
         private_handle = pair['private']
 
@@ -2055,7 +1849,7 @@ def run_command_sign(
                 'Подпись для данного типа ключа не поддерживается',
                 file=sys.stderr,
             )
-            return
+            return EXIT_ERROR
 
         config = SIGN_KEY_CONFIG[key_type]
         digest_bytes = None
@@ -2065,14 +1859,14 @@ def run_command_sign(
                 digest_bytes = parse_hex_input(hash_value)
             except ValueError as exc:
                 print(f'Некорректное значение параметра --hash: {exc}', file=sys.stderr)
-                return
+                return EXIT_ERROR
             expected_len = config.get('hash_length')
             if expected_len and len(digest_bytes) != expected_len:
                 print(
                     f'Хэш должен содержать {expected_len} байт для данного ключа',
                     file=sys.stderr,
                 )
-                return
+                return EXIT_ERROR
         else:
             digest_mechanism = config.get('digest_mechanism')
             if digest_mechanism is None:
@@ -2080,11 +1874,11 @@ def run_command_sign(
                     'Невозможно автоматически вычислить хэш для данного типа ключа',
                     file=sys.stderr,
                 )
-                return
+                return EXIT_ERROR
             data_bytes = data.encode('utf-8') if data is not None else b''
             digest_bytes = compute_digest(pkcs11, session, digest_mechanism, data_bytes)
             if digest_bytes is None:
-                return
+                return EXIT_ERROR
             expected_len = config.get('hash_length')
             if expected_len and len(digest_bytes) != expected_len:
                 print(
@@ -2092,14 +1886,14 @@ def run_command_sign(
                     f'ожидалось {expected_len}',
                     file=sys.stderr,
                 )
-                return
+                return EXIT_ERROR
 
         data_to_sign = digest_bytes
         if key_type == CKK_RSA:
             prefix = config.get('rsa_digest_info_prefix')
             if prefix is None:
                 print('Неизвестный формат DigestInfo для RSA', file=sys.stderr)
-                return
+                return EXIT_ERROR
             data_to_sign = prefix + digest_bytes
 
         mechanism = CK_MECHANISM(
@@ -2114,7 +1908,7 @@ def run_command_sign(
         )
         if rv != CKR_OK:
             print(f'C_SignInit вернула ошибку: 0x{rv:08X}')
-            return
+            return EXIT_ERROR
 
         data_len = len(data_to_sign)
         data_buffer = (ctypes.c_ubyte * data_len).from_buffer_copy(data_to_sign)
@@ -2130,7 +1924,7 @@ def run_command_sign(
         )
         if rv != CKR_OK:
             print(f'C_Sign вернула ошибку: 0x{rv:08X}')
-            return
+            return EXIT_ERROR
 
         signature_buffer = (ctypes.c_ubyte * signature_len.value)()
         rv = pkcs11.C_Sign(
@@ -2142,7 +1936,7 @@ def run_command_sign(
         )
         if rv != CKR_OK:
             print(f'C_Sign вернула ошибку: 0x{rv:08X}')
-            return
+            return EXIT_ERROR
 
         digest_hex = digest_bytes.hex().upper()
         signature = bytes(signature_buffer[: signature_len.value])
@@ -2151,10 +1945,4 @@ def run_command_sign(
         print('Хэш (HEX):', digest_hex)
         print('Подпись (HEX):', signature_hex)
 
-    finally:
-        if logged_in:
-            pkcs11.C_Logout(session)
-        if session_opened:
-            pkcs11.C_CloseSession(session)
-        if initialized:
-            pkcs11.C_Finalize(None)
+    return EXIT_OK
