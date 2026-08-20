@@ -1,3 +1,4 @@
+import contextlib
 import ctypes
 import hashlib
 import hmac
@@ -371,25 +372,184 @@ def compute_digest(pkcs11, session, mechanism_value, data: bytes):
     return bytes(digest_buffer[: digest_len.value])
 
 
+# Коды возврата команд. Их отдаёт run_command_*, а main.py передаёт в sys.exit.
+EXIT_OK = 0
+EXIT_ERROR = 1
+
+
+@contextlib.contextmanager
+def pkcs11_library(pkcs11):
+    """C_Initialize на входе, C_Finalize на выходе.
+
+    Отдаёт True, если библиотека поднялась, иначе False — сообщение уже напечатано.
+    Нужен командам, которым сессия не требуется: сведения о библиотеке, слоты,
+    список кошельков, информация о токене.
+    """
+
+    rv = pkcs11.C_Initialize(None)
+    if rv != CKR_OK:
+        print(f'C_Initialize вернула ошибку: 0x{rv:08X}')
+        yield False
+        return
+
+    try:
+        yield True
+    finally:
+        pkcs11.C_Finalize(None)
+
+
+@contextlib.contextmanager
+def wallet_session(pkcs11, wallet_id, pin=None):
+    """C_Initialize → C_OpenSession → C_Login и обратная раскрутка в конце.
+
+    Отдаёт хэндл сессии; None означает, что дойти до конца не удалось и сообщение
+    об этом уже напечатано.
+
+    PIN передают команды, которым нечего проверять до входа. Если проверить надо —
+    например, разобрать мнемоническую фразу и не тратить попытку ввода PIN-кода
+    впустую, — сессию открывают без PIN, а входят через logged_in_user после
+    проверок. Без PIN вход не выполняется вовсе: так работает --list-keys, который
+    показывает только открытые ключи.
+    """
+
+    session = ctypes.c_ulong()
+    initialized = False
+    session_opened = False
+    logged_in = False
+
+    try:
+        rv = pkcs11.C_Initialize(None)
+        if rv != CKR_OK:
+            print(f'C_Initialize вернула ошибку: 0x{rv:08X}')
+            yield None
+            return
+        initialized = True
+
+        rv = pkcs11.C_OpenSession(
+            wallet_id,
+            CKF_SERIAL_SESSION | CKF_RW_SESSION,
+            None,
+            None,
+            ctypes.byref(session),
+        )
+        if rv == CKR_TOKEN_NOT_PRESENT:
+            print('Нет подключенного кошелька, подключите кошелек')
+            yield None
+            return
+        if rv != CKR_OK:
+            print(f'C_OpenSession вернула ошибку: 0x{rv:08X}')
+            yield None
+            return
+        session_opened = True
+
+        if pin:
+            pin_bytes = pin.encode('utf-8')
+            rv = pkcs11.C_Login(session, CKU_USER, pin_bytes, len(pin_bytes))
+            if rv != CKR_OK:
+                print(f'C_Login вернула ошибку: 0x{rv:08X}')
+                yield None
+                return
+            logged_in = True
+
+        yield session
+    finally:
+        if logged_in:
+            pkcs11.C_Logout(session)
+        if session_opened:
+            pkcs11.C_CloseSession(session)
+        if initialized:
+            pkcs11.C_Finalize(None)
+
+
+@contextlib.contextmanager
+def logged_in_user(pkcs11, session, pin):
+    """C_Login на входе, C_Logout на выходе.
+
+    Отдаёт True, если вход выполнен, иначе False — сообщение уже напечатано.
+    Нужен там, где до входа выполняются проверки: сессия уже открыта, а PIN
+    предъявляется, только когда ясно, что команде есть что делать.
+    """
+
+    pin_bytes = pin.encode('utf-8')
+    rv = pkcs11.C_Login(session, CKU_USER, pin_bytes, len(pin_bytes))
+    if rv != CKR_OK:
+        print(f'C_Login вернула ошибку: 0x{rv:08X}')
+        yield False
+        return
+
+    try:
+        yield True
+    finally:
+        pkcs11.C_Logout(session)
+
+
+def find_objects(pkcs11, session, obj_class):
+    """Найти на токене все объекты указанного класса и вернуть список их хэндлов.
+
+    Список ключей, удаление и подпись перебирают объекты одинаково, поэтому поиск
+    живёт здесь, а не внутри каждой из трёх команд.
+    """
+
+    handles = []
+    class_val = ctypes.c_ulong(obj_class)
+    template = (CK_ATTRIBUTE * 1)(
+        CK_ATTRIBUTE(
+            type=CKA_CLASS,
+            pValue=ctypes.cast(ctypes.pointer(class_val), ctypes.c_void_p),
+            ulValueLen=ctypes.sizeof(class_val),
+        )
+    )
+
+    rv = pkcs11.C_FindObjectsInit(session, template, 1)
+    if rv != CKR_OK:
+        print(f'C_FindObjectsInit вернула ошибку: 0x{rv:08X}')
+        return handles
+
+    obj = ctypes.c_ulong()
+    count = ctypes.c_ulong()
+    while True:
+        rv = pkcs11.C_FindObjects(session, ctypes.byref(obj), 1, ctypes.byref(count))
+        if rv != CKR_OK:
+            print(f'C_FindObjects вернула ошибку: 0x{rv:08X}')
+            break
+        if count.value == 0:
+            break
+        handles.append(obj.value)
+
+    rv = pkcs11.C_FindObjectsFinal(session)
+    if rv != CKR_OK:
+        print(f'C_FindObjectsFinal вернула ошибку: 0x{rv:08X}')
+
+    return handles
+
+
+def sort_key_pairs(pairs):
+    """Упорядочить пары ключей так, как их нумерует key-number.
+
+    По CKA_ID, а при совпадении — по порядку обнаружения. Нумерация начинается с
+    единицы. Список, удаление и подпись обязаны нумеровать одинаково, поэтому
+    правило записано здесь один раз.
+    """
+
+    return sorted(
+        enumerate(pairs), key=lambda item: ((item[1]['key_id'] or b''), item[0])
+    )
+
+
 @pkcs11_command
 def show_wallet_info(pkcs11, wallet_id=0):
     """Получить подробную информацию о кошельке."""
 
-    run_command_show_wallet_info(pkcs11, wallet_id=wallet_id)
+    return run_command_show_wallet_info(pkcs11, wallet_id=wallet_id)
 
 
 def run_command_show_wallet_info(pkcs11, wallet_id=0):
     define_pkcs11_functions(pkcs11)
 
-    initialized = False
     had_error = False
-    try:
-        rv = pkcs11.C_Initialize(None)
-        if rv != CKR_OK:
-            print(f'C_Initialize вернула ошибку: 0x{rv:08X}')
-            had_error = True
-        else:
-            initialized = True
+    with pkcs11_library(pkcs11) as library_ready:
+        if not library_ready:
+            return EXIT_ERROR
 
         token_info = CK_TOKEN_INFO()
         if not had_error:
@@ -498,138 +658,122 @@ def run_command_show_wallet_info(pkcs11, wallet_id=0):
             _print_table(
                 'Расширенные флаги', flag_rows, headers=('Флаг', 'Установлен')
             )
-    finally:
-        if initialized:
-            pkcs11.C_Finalize(None)
+
+    return EXIT_ERROR if had_error else EXIT_OK
 
 
 @pkcs11_command
 def library_info(pkcs11):
-    run_command_library_info(pkcs11)
+    return run_command_library_info(pkcs11)
 
 
 def run_command_library_info(pkcs11):
     define_pkcs11_functions(pkcs11)
 
-    initialized = False
-    try:
-        rv = pkcs11.C_Initialize(None)
+    with pkcs11_library(pkcs11) as library_ready:
+        if not library_ready:
+            return EXIT_ERROR
+
+        info = CK_INFO()
+        rv = pkcs11.C_GetInfo(ctypes.byref(info))
         if rv != CKR_OK:
-            print(f'C_Initialize вернула ошибку: 0x{rv:08X}')
-        else:
-            initialized = True
-            info = CK_INFO()
-            rv = pkcs11.C_GetInfo(ctypes.byref(info))
-            if rv != CKR_OK:
-                print(f'C_GetInfo вернула ошибку: 0x{rv:08X}')
-            else:
-                version = (
-                    f'{info.cryptokiVersion.major}.{info.cryptokiVersion.minor}'
-                )
-                libver = (
-                    f'{info.libraryVersion.major}.{info.libraryVersion.minor}'
-                )
-                manuf = info.manufacturerID.decode('utf-8', errors='ignore')
-                desc = info.libraryDescription.decode('utf-8', errors='ignore')
-                print('Информация о PKCS#11 библиотеке:')
-                print(f'  Cryptoki Version:    {version}')
-                print(f'  Library Description: {desc}')
-                print(f'  Manufacturer ID:     {manuf}')
-                print(f'  Library Version:     {libver}')
-    finally:
-        if initialized:
-            pkcs11.C_Finalize(None)
+            print(f'C_GetInfo вернула ошибку: 0x{rv:08X}')
+            return EXIT_ERROR
+
+        version = f'{info.cryptokiVersion.major}.{info.cryptokiVersion.minor}'
+        libver = f'{info.libraryVersion.major}.{info.libraryVersion.minor}'
+        manuf = info.manufacturerID.decode('utf-8', errors='ignore')
+        desc = info.libraryDescription.decode('utf-8', errors='ignore')
+        print('Информация о PKCS#11 библиотеке:')
+        print(f'  Cryptoki Version:    {version}')
+        print(f'  Library Description: {desc}')
+        print(f'  Manufacturer ID:     {manuf}')
+        print(f'  Library Version:     {libver}')
+
+    return EXIT_OK
+
 
 @pkcs11_command
 def list_slots(pkcs11):
     """Выводит список доступных слотов."""
-    run_command_list_slots(pkcs11)
+    return run_command_list_slots(pkcs11)
 
 
 def run_command_list_slots(pkcs11):
     define_pkcs11_functions(pkcs11)
 
-    initialized = False
-    try:
-        rv = pkcs11.C_Initialize(None)
+    with pkcs11_library(pkcs11) as library_ready:
+        if not library_ready:
+            return EXIT_ERROR
+
+        count = ctypes.c_ulong()
+        rv = pkcs11.C_GetSlotList(False, None, ctypes.byref(count))
         if rv != CKR_OK:
-            print(f'C_Initialize вернула ошибку: 0x{rv:08X}')
-        else:
-            initialized = True
-            count = ctypes.c_ulong()
-            rv = pkcs11.C_GetSlotList(False, None, ctypes.byref(count))
-            if rv != CKR_OK:
-                print(f'C_GetSlotList вернула ошибку: 0x{rv:08X}')
-            else:
-                slots = (ctypes.c_ulong * count.value)()
-                rv = pkcs11.C_GetSlotList(False, slots, ctypes.byref(count))
-                if rv != CKR_OK:
-                    print(f'C_GetSlotList вернула ошибку: 0x{rv:08X}')
-                else:
-                    print('Список доступных слотов:')
-                    for slot_id in slots:
-                        print(f'  Слот ID: {slot_id}')
-    finally:
-        if initialized:
-            pkcs11.C_Finalize(None)
+            print(f'C_GetSlotList вернула ошибку: 0x{rv:08X}')
+            return EXIT_ERROR
+
+        slots = (ctypes.c_ulong * count.value)()
+        rv = pkcs11.C_GetSlotList(False, slots, ctypes.byref(count))
+        if rv != CKR_OK:
+            print(f'C_GetSlotList вернула ошибку: 0x{rv:08X}')
+            return EXIT_ERROR
+
+        print('Список доступных слотов:')
+        for slot_id in slots:
+            print(f'  Слот ID: {slot_id}')
+
+    return EXIT_OK
+
 
 @pkcs11_command
 def list_wallets(pkcs11):
     """Выводит список доступных кошельков (токенов)."""
-    run_command_list_wallets(pkcs11)
+    return run_command_list_wallets(pkcs11)
 
 
 def run_command_list_wallets(pkcs11):
     define_pkcs11_functions(pkcs11)
 
-    initialized = False
-    try:
-        rv = pkcs11.C_Initialize(None)
+    with pkcs11_library(pkcs11) as library_ready:
+        if not library_ready:
+            return EXIT_ERROR
+
+        count = ctypes.c_ulong()
+        rv = pkcs11.C_GetSlotList(True, None, ctypes.byref(count))
         if rv != CKR_OK:
-            print(f'C_Initialize вернула ошибку: 0x{rv:08X}')
-        else:
-            initialized = True
-            count = ctypes.c_ulong()
-            rv = pkcs11.C_GetSlotList(True, None, ctypes.byref(count))
+            print(f'C_GetSlotList вернула ошибку: 0x{rv:08X}')
+            return EXIT_ERROR
+        if count.value == 0:
+            print('Нет подключенного кошелька, подключите кошелек')
+            return EXIT_ERROR
+
+        slots = (ctypes.c_ulong * count.value)()
+        rv = pkcs11.C_GetSlotList(True, slots, ctypes.byref(count))
+        if rv != CKR_OK:
+            print(f'C_GetSlotList вернула ошибку: 0x{rv:08X}')
+            return EXIT_ERROR
+
+        print('Список доступных кошельков:')
+        for slot_id in slots:
+            token_info = CK_TOKEN_INFO()
+            rv = pkcs11.C_GetTokenInfo(slot_id, ctypes.byref(token_info))
             if rv != CKR_OK:
-                print(f'C_GetSlotList вернула ошибку: 0x{rv:08X}')
-            elif count.value == 0:
-                print('Нет подключенного кошелька, подключите кошелек')
-            else:
-                slots = (ctypes.c_ulong * count.value)()
-                rv = pkcs11.C_GetSlotList(True, slots, ctypes.byref(count))
-                if rv != CKR_OK:
-                    print(f'C_GetSlotList вернула ошибку: 0x{rv:08X}')
-                else:
-                    print('Список доступных кошельков:')
-                    for slot_id in slots:
-                        token_info = CK_TOKEN_INFO()
-                        rv = pkcs11.C_GetTokenInfo(
-                            slot_id, ctypes.byref(token_info)
-                        )
-                        if rv == CKR_OK:
-                            label = token_info.label.decode(
-                                'utf-8', errors='ignore'
-                            ).strip()
-                            manufacturer = token_info.manufacturerID.decode(
-                                'utf-8', errors='ignore'
-                            ).strip()
-                            model = token_info.model.decode(
-                                'utf-8', errors='ignore'
-                            ).strip()
-                            serial = token_info.serialNumber.decode(
-                                'utf-8', errors='ignore'
-                            ).strip()
-                            print(f'  Кошелёк в слоте {slot_id}:')
-                            print(f'    Метка: {label}')
-                            print(f'    Производитель: {manufacturer}')
-                            print(f'    Модель: {model}')
-                            print(f'    Серийный номер: {serial}')
-                        else:
-                            print(f'  Слот {slot_id} не содержит кошелька.')
-    finally:
-        if initialized:
-            pkcs11.C_Finalize(None)
+                print(f'  Слот {slot_id} не содержит кошелька.')
+                continue
+
+            label = token_info.label.decode('utf-8', errors='ignore').strip()
+            manufacturer = token_info.manufacturerID.decode(
+                'utf-8', errors='ignore'
+            ).strip()
+            model = token_info.model.decode('utf-8', errors='ignore').strip()
+            serial = token_info.serialNumber.decode('utf-8', errors='ignore').strip()
+            print(f'  Кошелёк в слоте {slot_id}:')
+            print(f'    Метка: {label}')
+            print(f'    Производитель: {manufacturer}')
+            print(f'    Модель: {model}')
+            print(f'    Серийный номер: {serial}')
+
+    return EXIT_OK
 
 @pkcs11_command
 def list_keys(pkcs11, wallet_id=0, pin=None):
