@@ -19,6 +19,8 @@ SECP256K1_OID_DER = bytes((0x06, 0x05, 0x2B, 0x81, 0x04, 0x00, 0x0A))
 
 def test_list_keys_public_only_no_pin(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 123
@@ -54,8 +56,6 @@ def test_list_keys_public_only_no_pin(monkeypatch, capsys):
     pkcs11_mock.C_Logout = lambda session: logout_called.append(True) or 0
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_keys(wallet_id=1, pin=None)
@@ -69,6 +69,8 @@ def test_list_keys_public_only_no_pin(monkeypatch, capsys):
 
 def test_library_info_prints_wallet_description(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
     expected_desc = "Rutoken Wallet PKCS #11 library"
 
     def get_info(info_ptr):
@@ -87,8 +89,6 @@ def test_library_info_prints_wallet_description(monkeypatch, capsys):
     pkcs11_mock.C_GetInfo = get_info
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.library_info()
@@ -99,6 +99,8 @@ def test_library_info_prints_wallet_description(monkeypatch, capsys):
 
 def test_list_keys_with_pin_search_templates(monkeypatch):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 123
@@ -133,8 +135,6 @@ def test_list_keys_with_pin_search_templates(monkeypatch):
     pkcs11_mock.C_Login = login
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_keys(wallet_id=1, pin="0000")
@@ -147,6 +147,8 @@ def test_list_keys_with_pin_search_templates(monkeypatch):
 
 def test_list_wallets_no_wallet(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def get_slot_list(token_present, slot_list, count_ptr):
         count_ptr._obj.value = 0
@@ -155,8 +157,6 @@ def test_list_wallets_no_wallet(monkeypatch, capsys):
     pkcs11_mock.C_GetSlotList = get_slot_list
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_wallets()
@@ -167,6 +167,8 @@ def test_list_wallets_no_wallet(monkeypatch, capsys):
 
 def test_show_wallet_info_prints_tables(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def get_token_info(slot, info_ptr):
         info = ctypes.cast(info_ptr, ctypes.POINTER(structs.CK_TOKEN_INFO)).contents
@@ -213,8 +215,6 @@ def test_show_wallet_info_prints_tables(monkeypatch, capsys):
     pkcs11_mock.C_EX_GetTokenInfoExtended = get_token_info_extended
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.show_wallet_info(wallet_id=1)
@@ -234,11 +234,11 @@ def test_show_wallet_info_prints_tables(monkeypatch, capsys):
 
 def test_show_wallet_info_no_token(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
     pkcs11_mock.C_GetTokenInfo = lambda slot, info: structs.CKR_TOKEN_NOT_PRESENT
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.show_wallet_info(wallet_id=0)
@@ -249,11 +249,11 @@ def test_show_wallet_info_no_token(monkeypatch, capsys):
 
 def test_list_keys_no_wallet(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
     pkcs11_mock.C_OpenSession = lambda *args: structs.CKR_TOKEN_NOT_PRESENT
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_keys(wallet_id=1, pin="0000")
@@ -264,29 +264,24 @@ def test_list_keys_no_wallet(monkeypatch, capsys):
 
 def test_format_attribute_value_text():
     data = b"hello"
-    assert commands.format_attribute_value(data, "text") == "hello"
+    assert commands.format_attribute_text(data) == "hello"
 
 
 def test_format_attribute_value_binary_text():
     data = b"\x00\x01\x02"
-    assert commands.format_attribute_value(data, "text") == "двоичные данные"
-
-
-def test_format_attribute_value_hex_truncate():
-    data = bytes(range(40))
-    out = commands.format_attribute_value(data, "hex")
-    assert out.startswith("00 01 02")
-    assert out.endswith("...")
+    assert commands.format_attribute_text(data) == "двоичные данные"
 
 
 def test_format_attribute_value_text_truncate():
     data = b"a" * 40
-    out = commands.format_attribute_value(data, "text")
+    out = commands.format_attribute_text(data)
     assert out == "a" * 30 + "..."
 
 
 def test_list_keys_prints_key_type(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 1
@@ -330,8 +325,6 @@ def test_list_keys_prints_key_type(monkeypatch, capsys):
     pkcs11_mock.C_GetAttributeValue = get_attribute_value
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_keys(wallet_id=1, pin=None)
@@ -343,6 +336,8 @@ def test_list_keys_prints_key_type(monkeypatch, capsys):
 def test_list_keys_prints_ec_key_type(monkeypatch, capsys):
     """Simulate object with EC key type and expect ECDSA description."""
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 1
@@ -380,8 +375,6 @@ def test_list_keys_prints_ec_key_type(monkeypatch, capsys):
     pkcs11_mock.C_GetAttributeValue = get_attribute_value
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_keys(wallet_id=1, pin=None)
@@ -393,6 +386,8 @@ def test_list_keys_prints_ec_key_type(monkeypatch, capsys):
 
 def test_list_keys_gost_value_full_hex(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 1
@@ -464,8 +459,6 @@ def test_list_keys_gost_value_full_hex(monkeypatch, capsys):
     pkcs11_mock.C_Logout = lambda session: 0
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_keys(wallet_id=1, pin=None)
@@ -488,6 +481,8 @@ def test_list_keys_gost_value_full_hex(monkeypatch, capsys):
 
 def test_list_keys_ec_prints_params(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 1
@@ -560,8 +555,6 @@ def test_list_keys_ec_prints_params(monkeypatch, capsys):
     pkcs11_mock.C_Logout = lambda session: 0
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_keys(wallet_id=1, pin=None)
@@ -574,6 +567,8 @@ def test_list_keys_ec_prints_params(monkeypatch, capsys):
 
 def test_list_keys_rsa_prints_modulus(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 1
@@ -647,8 +642,6 @@ def test_list_keys_rsa_prints_modulus(monkeypatch, capsys):
     pkcs11_mock.C_Logout = lambda session: 0
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_keys(wallet_id=1, pin=None)
@@ -711,6 +704,8 @@ def test_list_keys_private_does_not_print_public_only_attrs(
     monkeypatch, capsys, key_type, public_attrs, private_attrs, forbidden
 ):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 1
@@ -796,8 +791,6 @@ def test_list_keys_private_does_not_print_public_only_attrs(
     pkcs11_mock.C_Logout = lambda session: 0
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_keys(wallet_id=1, pin="0000")
@@ -833,6 +826,8 @@ def test_list_keys_private_does_not_print_public_only_attrs(
 def test_public_key_label_from_private(monkeypatch, capsys):
     """Public key should display label taken from the corresponding private key."""
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 1
@@ -900,8 +895,6 @@ def test_public_key_label_from_private(monkeypatch, capsys):
     pkcs11_mock.C_Login = login
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_keys(wallet_id=1, pin="0000")
@@ -917,6 +910,8 @@ def test_list_keys_prints_all_pairs_with_same_id(monkeypatch, capsys):
     """Multiple key pairs sharing the same CKA_ID should all be displayed."""
 
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 1
@@ -1014,8 +1009,6 @@ def test_list_keys_prints_all_pairs_with_same_id(monkeypatch, capsys):
     pkcs11_mock.C_Logout = lambda session: 0
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_keys(wallet_id=1, pin="0000")
@@ -1029,6 +1022,8 @@ def test_list_keys_warns_when_public_missing(monkeypatch, capsys):
     """A missing public key should not cause attribute errors and prints a warning."""
 
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 1
@@ -1101,8 +1096,6 @@ def test_list_keys_warns_when_public_missing(monkeypatch, capsys):
     pkcs11_mock.C_Logout = lambda session: 0
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.list_keys(wallet_id=1, pin="0000")
@@ -1114,6 +1107,8 @@ def test_list_keys_warns_when_public_missing(monkeypatch, capsys):
 
 def test_change_pin_success(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 321
@@ -1159,8 +1154,6 @@ def test_change_pin_success(monkeypatch, capsys):
     pkcs11_mock.C_CloseSession = lambda session: close_called.append(session if isinstance(session, int) else session.value) or 0
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.change_pin(wallet_id=2, old_pin="0000", new_pin="1234")
@@ -1175,6 +1168,8 @@ def test_change_pin_success(monkeypatch, capsys):
 
 def test_change_pin_missing_new_pin(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 111
@@ -1189,8 +1184,6 @@ def test_change_pin_missing_new_pin(monkeypatch, capsys):
     pkcs11_mock.C_CloseSession = lambda session: close_called.append(session if isinstance(session, int) else session.value) or 0
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.change_pin(wallet_id=0, old_pin="0000", new_pin=None)
@@ -1202,6 +1195,8 @@ def test_change_pin_missing_new_pin(monkeypatch, capsys):
 
 def test_import_keys_creates_object(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 555
@@ -1263,8 +1258,6 @@ def test_import_keys_creates_object(monkeypatch, capsys):
     pkcs11_mock.C_CreateObject = create_object
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     raw_mnemonic = (
@@ -1311,6 +1304,8 @@ def test_import_keys_creates_object(monkeypatch, capsys):
 
 def test_import_keys_invalid_word_count(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 42
@@ -1330,8 +1325,6 @@ def test_import_keys_invalid_word_count(monkeypatch, capsys):
     )
 
     monkeypatch.setattr(pkcs11, "load_pkcs11_lib", lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, "initialize_library", lambda x: None)
-    monkeypatch.setattr(pkcs11, "finalize_library", lambda x: None)
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.import_keys(wallet_id=0, pin="0000", mnemonic="one two")

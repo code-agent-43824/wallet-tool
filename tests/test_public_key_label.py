@@ -8,6 +8,8 @@ import pkcs11_structs as structs
 
 def test_public_key_has_label(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
     pkcs11_mock.C_CloseSession = lambda session: 0
     pkcs11_mock.C_FindObjectsFinal = lambda session: 0
     def open_session(slot, flags, app, notify, session_ptr):
@@ -53,8 +55,6 @@ def test_public_key_has_label(monkeypatch, capsys):
     pkcs11_mock.C_GetAttributeValue = get_attribute_value
 
     monkeypatch.setattr(pkcs11, 'load_pkcs11_lib', lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, 'initialize_library', lambda x: None)
-    monkeypatch.setattr(pkcs11, 'finalize_library', lambda x: None)
     monkeypatch.setattr(commands, 'define_pkcs11_functions', lambda x: None)
 
     commands.list_keys(wallet_id=1, pin=None)

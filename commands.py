@@ -114,41 +114,23 @@ SECP256K1_OID_DER = bytes(
 )
 
 
-def format_attribute_value(value: bytes, mode: str) -> str:
-    """Return string representation of attribute value.
+def format_attribute_text(value: bytes) -> str:
+    """Показать значение атрибута как текст.
 
-    Parameters
-    ----------
-    value: bytes
-        Raw value returned from PKCS#11.
-    mode: str
-        Either ``"hex"`` or ``"text"``.
-
-    Returns
-    -------
-    str
-        String suitable for console output. If value cannot be represented in
-        requested mode, ``"двоичные данные"`` is returned.
+    Длиннее 30 символов — обрезается многоточием. Если значение не разбирается
+    как печатный UTF-8, возвращается "двоичные данные": для HEX-представления
+    есть format_attribute_value_full_hex, который ничего не обрезает.
     """
 
-    if mode == "hex":
-        hex_part = " ".join(f"{b:02X}" for b in value[:30])
-        if len(value) > 30:
-            hex_part += " ..."
-        return hex_part
-
-    if mode == "text":
-        try:
-            decoded = value.decode("utf-8")
-        except UnicodeDecodeError:
-            return "двоичные данные"
-        if not all(ch.isprintable() or ch.isspace() for ch in decoded):
-            return "двоичные данные"
-        if len(decoded) > 30:
-            return decoded[:30] + "..."
-        return decoded
-
-    raise ValueError(f"Unknown mode {mode}")
+    try:
+        decoded = value.decode("utf-8")
+    except UnicodeDecodeError:
+        return "двоичные данные"
+    if not all(ch.isprintable() or ch.isspace() for ch in decoded):
+        return "двоичные данные"
+    if len(decoded) > 30:
+        return decoded[:30] + "..."
+    return decoded
 
 
 def format_attribute_value_full_hex(value: bytes, bytes_per_line: int = 16):
@@ -192,7 +174,7 @@ def print_attribute_text(name: str, raw_value: bytes, indent: str = "      ") ->
         print(f"{label}—")
         return
 
-    text_value = format_attribute_value(raw_value, "text")
+    text_value = format_attribute_text(raw_value)
 
     print(f"{label}{text_value}")
 

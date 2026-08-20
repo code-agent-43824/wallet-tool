@@ -15,6 +15,8 @@ def setup_mock(
     all_handles=None,
 ):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 1
@@ -96,8 +98,6 @@ def setup_mock(
     pkcs11_mock.C_DestroyObject = destroy_object
 
     monkeypatch.setattr(pkcs11, 'load_pkcs11_lib', lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, 'initialize_library', lambda x: None)
-    monkeypatch.setattr(pkcs11, 'finalize_library', lambda x: None)
     monkeypatch.setattr(commands, 'define_pkcs11_functions', lambda x: None)
 
     return destroyed, login_args, logout_called

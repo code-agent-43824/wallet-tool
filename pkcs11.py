@@ -1,7 +1,6 @@
 import os
 import sys
 import ctypes
-from pkcs11_structs import CK_VOID_PTR
 
 
 def load_pkcs11_lib():
@@ -26,30 +25,16 @@ def load_pkcs11_lib():
         raise RuntimeError(f"Ошибка загрузки {lib_path}: {e}") from e
 
 
-def initialize_library(pkcs11):
-    """Сохраняем интерфейс для совместимости с тестами."""
-    pkcs11.C_Initialize.argtypes = [CK_VOID_PTR]
-    pkcs11.C_Initialize.restype = ctypes.c_ulong
-    return pkcs11.C_Initialize(None)
-
-
-def finalize_library(pkcs11):
-    """Сохраняем интерфейс для совместимости с тестами."""
-    pkcs11.C_Finalize.argtypes = [CK_VOID_PTR]
-    pkcs11.C_Finalize.restype = ctypes.c_ulong
-    return pkcs11.C_Finalize(None)
-
 def pkcs11_command(func):
-    """Декоратор для автоматической инициализации и завершения работы с библиотекой."""
+    """Загрузить библиотеку и передать её первым аргументом команде.
+
+    Тело каждой команды живёт в отдельной функции run_command_*, которая
+    принимает библиотеку параметром: так её можно вызвать в тестах с мок-объектом
+    вместо настоящей библиотеки.
+    """
+
     def wrapper(*args, **kwargs):
         pkcs11 = load_pkcs11_lib()
-        if not hasattr(pkcs11, 'C_Initialize'):
-            pkcs11.C_Initialize = lambda *a, **k: 0
-        if not hasattr(pkcs11, 'C_Finalize'):
-            pkcs11.C_Finalize = lambda *a, **k: 0
-        if not hasattr(pkcs11, 'C_CloseSession'):
-            pkcs11.C_CloseSession = lambda *a, **k: 0
-        if not hasattr(pkcs11, 'C_Logout'):
-            pkcs11.C_Logout = lambda *a, **k: 0
         return func(pkcs11, *args, **kwargs)
+
     return wrapper

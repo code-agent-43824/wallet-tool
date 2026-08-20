@@ -184,6 +184,8 @@ def setup_sign_mock(
 
 def test_sign_requires_key_number(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.run_command_sign(pkcs11_mock, wallet_id=1, pin="0000")
@@ -194,6 +196,8 @@ def test_sign_requires_key_number(monkeypatch, capsys):
 
 def test_sign_requires_pin(monkeypatch, capsys):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
     monkeypatch.setattr(commands, "define_pkcs11_functions", lambda x: None)
 
     commands.run_command_sign(pkcs11_mock, wallet_id=1, pin=None, key_number=1)

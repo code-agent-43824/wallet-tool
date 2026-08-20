@@ -15,6 +15,8 @@ SECP256K1_OID_DER = bytes((0x06, 0x05, 0x2B, 0x81, 0x04, 0x00, 0x0A))
 
 def make_pkcs11_mock(captured):
     pkcs11_mock = SimpleNamespace()
+    pkcs11_mock.C_Initialize = lambda _: 0
+    pkcs11_mock.C_Finalize = lambda _: 0
 
     def open_session(slot, flags, app, notify, session_ptr):
         session_ptr._obj.value = 1
@@ -120,8 +122,6 @@ def make_pkcs11_mock(captured):
 def setup(monkeypatch, captured):
     pkcs11_mock = make_pkcs11_mock(captured)
     monkeypatch.setattr(pkcs11, 'load_pkcs11_lib', lambda: pkcs11_mock)
-    monkeypatch.setattr(pkcs11, 'initialize_library', lambda x: None)
-    monkeypatch.setattr(pkcs11, 'finalize_library', lambda x: None)
     monkeypatch.setattr(commands, 'define_pkcs11_functions', lambda x: None)
 
 
