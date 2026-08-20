@@ -25,8 +25,8 @@ There is no `pyca/pkcs11` or any other binding — the whole FFI layer is hand-w
 
 | File | Role |
 | --- | --- |
-| `main.py` | `argparse` setup, PIN input, and one flat `if/elif` chain that picks the command |
-| `commands.py` | Everything else — 2200 lines, all command logic and console output |
+| `main.py` | `argparse` setup, PIN input, and one flat chain of `if`s that picks the command |
+| `commands.py` | Everything else — 1900 lines, all command logic and console output |
 | `version.py` | `__version__`, the only place the version lives — see `AGENTS.md` |
 | `pkcs11.py` | Loads the shared library; the `@pkcs11_command` decorator |
 | `pkcs11_structs.py` | `CK_*` structures and every PKCS#11 constant the tool uses |
@@ -40,11 +40,12 @@ Every command is a **pair** of functions, and the split exists for the tests:
 ```python
 @pkcs11_command                     # loads the library, passes it as the first argument
 def sign(pkcs11, wallet_id=0, ...):
-    run_command_sign(pkcs11, wallet_id=wallet_id, ...)
+    return run_command_sign(pkcs11, wallet_id=wallet_id, ...)
 
 def run_command_sign(pkcs11, wallet_id=0, ...):   # the real body; takes the library as a parameter
     define_pkcs11_functions(pkcs11)
     ...
+    return EXIT_OK
 ```
 
 `main.py` imports and calls the decorated name. Tests either monkeypatch
@@ -58,10 +59,18 @@ truncated to 32 bits on 64-bit builds. Tests neutralise it
 (`monkeypatch.setattr(commands, 'define_pkcs11_functions', lambda x: None)`) because a
 `SimpleNamespace` has nowhere to put those attributes.
 
-Inside a body the shape is always the same: flat `if` steps guarded by `had_error`, with
-`initialized` / `session_opened` / `logged_in` flags, and a `finally` that unwinds
-`C_Logout` → `C_CloseSession` → `C_Finalize` in that order. Errors are **printed, not
-raised** — see the pitfall about exit codes below.
+Inside a body, the session comes from a context manager rather than being opened by hand:
+
+| Helper | Use |
+| --- | --- |
+| `pkcs11_library` | `C_Initialize`/`C_Finalize` only, for commands that need no session |
+| `wallet_session` | Opens the session and, given a PIN, logs in — when nothing needs checking first |
+| `logged_in_user` | Just the login, for commands that validate before spending a PIN attempt |
+
+`wallet_session` yields `None` and `pkcs11_library` yields `False` when they could not get
+that far; the message is already printed, so the command returns `EXIT_ERROR`. Unwinding
+(`C_Logout` → `C_CloseSession` → `C_Finalize`) happens in their `finally`, never in the
+command. Errors elsewhere are **printed, not raised**, and the function returns `EXIT_ERROR`.
 
 ## Non-obvious couplings
 
@@ -84,13 +93,13 @@ back as `(CK_ULONG)-1`. Never call `C_GetAttributeValue` directly — go through
 `CKA_KEY_TYPE` is the one attribute it decodes, into an `int` using `sys.byteorder`;
 everything else stays `bytes`.
 
-**`key-number` is a position, not an identifier.** `--list-keys`, `--delete-key` and
-`--sign` each rebuild the list from scratch: pair public and private handles by `CKA_ID`,
-then `sorted(enumerate(pairs), key=lambda i: (i[1]['key_id'] or b'', i[0]))`, 1-based. So a
-number is only valid against a listing made with the *same* PIN state — `--list-keys`
-without `--pin` sees public keys only, and its numbering can differ from what
-`--delete-key --pin ...` will act on. Change the sort in one place and you must change all
-three.
+**`key-number` is a position, not an identifier.** `sort_key_pairs` defines the order —
+by `CKA_ID`, ties broken by discovery order, 1-based — and `collect_key_pairs` builds the
+list `--delete-key` and `--sign` index into. `--list-keys` pairs handles differently
+(it carries attributes alongside them) but takes its order from the same `sort_key_pairs`.
+A number is still only valid against a listing made with the *same* PIN state:
+`--list-keys` without `--pin` sees public keys only, so its numbering can differ from what
+`--delete-key --pin ...` will act on.
 
 **Key derivation for `--import-key` happens in Python, not on the token.**
 `run_command_import_keys` does BIP39 itself — `PBKDF2-HMAC-SHA512(mnemonic, b"mnemonic",
@@ -106,10 +115,12 @@ the `finally` block clears with `_zero_bytearray()`, and the `ctypes` buffers ha
 library are cleared with `ctypes.memset` right after. `bytes` is immutable and cannot be
 wiped — keep those buffers `bytearray`, and add a new secret to both lists in `finally`.
 
-**BIP32 key templates carry the secp256r1 OID.** `SECP256R1_OID_DER`
-(`1.2.840.10045.3.1.7`) is what the vendor expects in `CKA_EC_PARAMS` for vendor BIP32 keys,
-even though BIP32 is a secp256k1 construction elsewhere. This was fixed deliberately
-(`49d3028`, `f9efd3b`, `04a10f5`); it is not a typo.
+**BIP32 key templates carry the secp256k1 OID.** `SECP256K1_OID_DER` (`1.3.132.0.10`) goes
+into `CKA_EC_PARAMS` for vendor BIP32 keys, matching both the `"Bitcoin seed"` derivation in
+`run_command_import_keys` and the vendor's own samples in the `3rdparty` release, which use
+`secp256k1Oid` and offer secp256r1 only as a commented alternative. The project used that
+alternative until `8d2bdc1`; keys created before it are on the other curve, so one mnemonic
+imported before and after yields different keys.
 
 ## Pitfalls
 
@@ -121,11 +132,12 @@ interpreter** instead — so the README's "put the library into the working dire
 holds for the built binary. Expect `RuntimeError: Ошибка загрузки ...` from a source
 checkout unless the library sits next to the interpreter.
 
-**Every command exits 0.** Nothing in `main.py` or `commands.py` calls `sys.exit` or returns
-a status; failures are printed and the process ends successfully. A shell script or CI step
-cannot tell a failed command from a working one except by matching output — which is exactly
-what the build workflows do (`grep -F "Library Description: ..."`). Do not assume you can
-add a check by looking at `$?`.
+**Commands report failure through the exit code.** `run_command_*` returns `EXIT_OK` or
+`EXIT_ERROR`, the decorated wrapper passes it through, and `main()` ends in `sys.exit`.
+Running with no command prints help and exits 1 — a usage error, not a successful run.
+A new command must return a code on **every** path; a bare `return` reads as `None`, which
+`sys.exit` treats as success. The build workflows still match on output rather than the
+status, which is why `grep -F "Library Description: ..."` is still there.
 
 **Console strings are asserted by the tests.** Output is Russian and several tests match on
 it — `"Нет подключенного кошелька" in captured.out`, `out.count("Ключ №") == 2`,

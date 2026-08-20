@@ -232,8 +232,9 @@ gates the trunk. Do not add one without a settled decision (§9).
 - **Every command re-runs `C_Initialize` / `C_Finalize` and opens its own session.**
   There is no long-lived handle and no daemon. Reason: the process is a one-shot CLI; a
   crashed command must not leave the token logged in.
-- **`main.py` dispatches with a plain `if/elif` chain, not subparsers.** Reason: every
-  command is a flag on one flat namespace, and the shape is asserted by the tests.
+- **`main.py` dispatches with a plain chain of `if`s, not subparsers.** Reason: every
+  command is a flag on one flat namespace, and the shape is asserted by the tests. Each
+  branch returns the command's exit code, which `main()` hands to `sys.exit`.
 
 ## Departures from the rules
 
