@@ -1,13 +1,23 @@
-# SHA-256 вендорных архивов из релиза `3rdparty` этого репозитория.
-# Формат совпадает с выводом sha256sum: <контрольная сумма>  <имя ассета>.
+# SHA-256 библиотек wtpkcs11ecp 2.18.2.0 из статического архива mescheryakov.pro.
+# Формат совпадает с выводом sha256sum: <контрольная сумма>  <путь внутри версии>.
 #
 # Как обновить при подъёме версии библиотеки:
-#   1. загрузить новые архивы в релиз `3rdparty`;
-#   2. sha256sum <архив> и заменить строку ниже;
-#   3. поднять PKCS11_VERSION в .github/workflows/build-*.yml — это ключ кэша.
-# Замена ассета без правки этого файла остановит сборку, и так и задумано.
+#   1. создать новую версионированную папку на сервере, не заменяя старую;
+#   2. проверить скачивание каждого файла по HTTPS и закрепить его SHA-256 ниже;
+#   3. поднять DEFAULT_VERSION в загрузчике и PKCS11_VERSION во всех build-*.yml.
+# Замена файла по существующему URL без правки пина остановит сборку, и так и задумано.
 
-3e901561eab7f300544aa13ac1c1babf4b209d36983b85edab8102efcd6a7512  linux-arm64.zip
-eecea00879de0be552721eb907279d90fe126a9b41c09876ffc9e27617d0f2bf  linux-x86_64.zip
-bfef60cf5415b94a7fde468ff75c7adaf49647746d9663a5c9e977be2d54e430  macos_x86_64+arm64.zip
-3304216170a3f8528209ad16da9577ea40049f9937f893a195a417b5db8736d7  windows-x86_64.zip
+a3db881470bd8f394fcfad03ffa7669d16f4ac817e479a32c5dc513f1665b744  android-arm64/libwtpkcs11ecp.so
+4218c363c570754bb3b21c04b0a54488822edece0c06e73ff3d8b347cb4250ae  android-armv7a/libwtpkcs11ecp.so
+d363e0ab16485b930da19b8af9ebb0a803786f89f33d5818626d148ef46e1b9c  android-x64/libwtpkcs11ecp.so
+e39f16e0e9801a6cfb5b2ff2ea18be9994114f3c2e6e52e202d177573d424232  android-x86/libwtpkcs11ecp.so
+2013e9be3e8e0279b8124e1bfdb4b947c212f2aec3d9fdd18ccdfeea85760470  ios-simulator/wtpkcs11ecp.framework/wtpkcs11ecp
+791b6aa8fac5ac8aacd2a5e8161a698627ec139b218381bd32910ae36e42e770  ios/wtpkcs11ecp.framework/wtpkcs11ecp
+994ab37dabe56350bd8817850d403ee648cbe9fb9a0a57a3165cb22e39fe58a0  linux-arm64/libwtpkcs11ecp.so
+c72019a8b26b66024248d695cefbdae2e87ef2d2f5d4ded49df961eaba1abbda  linux-armv7hf/libwtpkcs11ecp.so
+62d0b93fec4a8596082fd2950b8e14f0b505d2158459389fa121e24ce93a580f  linux-x64/libwtpkcs11ecp.so
+283ed8a71af9b2872317b01bf198bf1f92761ffd38eef42e0c69986ee7123efb  linux-x86/libwtpkcs11ecp.so
+da4e525668d91f8eca670e5ddfd836fa348fbd99d60b9c34a38043673b0d7f57  macos-uni/wtpkcs11ecp.framework/Versions/2.18.2.0/wtpkcs11ecp
+019f6898cce812d8336734a24e824ae4acc2e1633c8938217b29c26c82632969  windows-x64/wtpkcs11ecp.dll
+0179c52b384e2fc3fa6e3a161dfcfc3154598ff006a18166006dab519ee83b2f  windows-x86/wtpkcs11ecp.dll
+bddf5c49f9468d4168005e33a7c899c5856d9fec9a0fee9c3313a8fbdc86858d  wtpkcs11ecp-release.zip

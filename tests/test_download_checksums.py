@@ -36,12 +36,12 @@ def test_load_checksums_parses_sha256sum_format(tmp_path):
         tmp_path,
         "# комментарий\n"
         "\n"
-        f"{DIGEST_OF_EMPTY}  linux-x86_64.zip\n"
-        f"{DIGEST_OF_EMPTY.upper()} *windows-x86_64.zip\n",
+        f"{DIGEST_OF_EMPTY}  linux-x64/libwtpkcs11ecp.so\n"
+        f"{DIGEST_OF_EMPTY.upper()} *windows-x64/wtpkcs11ecp.dll\n",
     )
     assert download.load_checksums(path) == {
-        "linux-x86_64.zip": DIGEST_OF_EMPTY,
-        "windows-x86_64.zip": DIGEST_OF_EMPTY,
+        "linux-x64/libwtpkcs11ecp.so": DIGEST_OF_EMPTY,
+        "windows-x64/wtpkcs11ecp.dll": DIGEST_OF_EMPTY,
     }
 
 
@@ -65,9 +65,9 @@ def test_load_checksums_rejects_non_digest(tmp_path):
 
 def test_resolve_expected_digest_uses_checksum_file(tmp_path):
     digest = download.resolve_expected_digest(
-        "linux-x86_64.zip",
+        "linux-x64/libwtpkcs11ecp.so",
         None,
-        {"linux-x86_64.zip": DIGEST_OF_EMPTY},
+        {"linux-x64/libwtpkcs11ecp.so": DIGEST_OF_EMPTY},
         tmp_path / "checksums.sha256",
     )
     assert digest == DIGEST_OF_EMPTY
@@ -76,9 +76,9 @@ def test_resolve_expected_digest_uses_checksum_file(tmp_path):
 def test_resolve_expected_digest_override_wins(tmp_path):
     other = hashlib.sha256(b"other").hexdigest()
     digest = download.resolve_expected_digest(
-        "linux-x86_64.zip",
+        "linux-x64/libwtpkcs11ecp.so",
         other.upper(),
-        {"linux-x86_64.zip": DIGEST_OF_EMPTY},
+        {"linux-x64/libwtpkcs11ecp.so": DIGEST_OF_EMPTY},
         tmp_path / "checksums.sha256",
     )
     assert digest == other
@@ -87,37 +87,52 @@ def test_resolve_expected_digest_override_wins(tmp_path):
 def test_resolve_expected_digest_fails_closed_when_unpinned(tmp_path):
     with pytest.raises(SystemExit) as excinfo:
         download.resolve_expected_digest(
-            "linux-arm64.zip", None, {}, tmp_path / "checksums.sha256"
+            "linux-arm64/libwtpkcs11ecp.so", None, {}, tmp_path / "checksums.sha256"
         )
     message = str(excinfo.value)
     assert "No SHA-256 pinned" in message
-    assert "linux-arm64.zip" in message
+    assert "linux-arm64/libwtpkcs11ecp.so" in message
 
 
 def test_verify_digest_accepts_match(tmp_path):
-    target = tmp_path / "asset.zip"
+    target = tmp_path / "library.so"
     target.write_bytes(b"")
-    download.verify_digest(target, "asset.zip", DIGEST_OF_EMPTY)
+    download.verify_digest(target, "linux-x64/libwtpkcs11ecp.so", DIGEST_OF_EMPTY)
 
 
 def test_verify_digest_rejects_mismatch(tmp_path):
-    target = tmp_path / "asset.zip"
+    target = tmp_path / "library.so"
     target.write_bytes(b"tampered")
     with pytest.raises(SystemExit) as excinfo:
-        download.verify_digest(target, "asset.zip", DIGEST_OF_EMPTY)
+        download.verify_digest(target, "linux-x64/libwtpkcs11ecp.so", DIGEST_OF_EMPTY)
     message = str(excinfo.value)
     assert "SHA-256 mismatch" in message
     assert "Refusing to use it" in message
+
+
+@pytest.mark.parametrize("value", ["/library.so", "../library.so", "linux/../library.so"])
+def test_normalise_relative_path_rejects_unsafe_paths(value):
+    with pytest.raises(SystemExit) as excinfo:
+        download.normalise_relative_path(value, "--artifact")
+    assert "safe relative path" in str(excinfo.value)
+
+
+def test_build_url_uses_versioned_artifact_path():
+    assert download.build_url(
+        "https://example.test/archive/",
+        "2.18.2.0",
+        "linux-x64/libwtpkcs11ecp.so",
+    ) == "https://example.test/archive/2.18.2.0/linux-x64/libwtpkcs11ecp.so"
 
 
 def test_shipped_checksum_file_covers_the_assets_ci_downloads():
     """Пины должны быть на месте для всех трёх платформ из build-*.yml."""
 
     checksums = download.load_checksums(download.DEFAULT_CHECKSUM_FILE)
-    for asset in (
-        "linux-x86_64.zip",
-        "macos_x86_64+arm64.zip",
-        "windows-x86_64.zip",
+    for artifact in (
+        "linux-x64/libwtpkcs11ecp.so",
+        "macos-uni/wtpkcs11ecp.framework/Versions/2.18.2.0/wtpkcs11ecp",
+        "windows-x64/wtpkcs11ecp.dll",
     ):
-        assert asset in checksums, f"нет пина для {asset}"
-        assert len(checksums[asset]) == 64
+        assert artifact in checksums, f"нет пина для {artifact}"
+        assert len(checksums[artifact]) == 64

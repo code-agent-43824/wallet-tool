@@ -15,8 +15,7 @@ jobs:
     runs-on: windows-latest
     env:
       EXPECTED_DESCRIPTION: "Rutoken Wallet PKCS #11 library"
-      PKCS11_VERSION: "3rdparty" # bump to refresh cache when library updates
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PKCS11_VERSION: "2.18.2.0" # versioned static directory and cache key
       ARTIFACT_NAME: ${{ inputs.artifact-name || 'windows-package' }}
 
     steps:
@@ -44,14 +43,13 @@ jobs:
           key: pkcs11-${{ runner.os }}-${{ env.PKCS11_VERSION }}
 
       # Запускается и при попадании в кэш: контрольная сумма ассета проверяется
-      # каждый раз, кэшированный архив доверия не заслуживает.
+      # каждый раз, кэшированная библиотека доверия не заслуживает.
       - name: Fetch and verify pkcs11 dll
         shell: pwsh
         run: |
           python scripts/download_wtpkcs11ecp.py `
-            --pattern windows `
-            --pattern x86_64 `
-            --library-pattern wtpkcs11ecp.dll
+            --version $env:PKCS11_VERSION `
+            --artifact windows-x64/wtpkcs11ecp.dll
 
       # 3. Собираем один exe-файл
       - name: Build exe

@@ -16,8 +16,7 @@ jobs:
       contents: read
     env:
       EXPECTED_DESCRIPTION: "Rutoken Wallet PKCS #11 library"
-      PKCS11_VERSION: "3rdparty"
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PKCS11_VERSION: "2.18.2.0"
       ARTIFACT_NAME: ${{ inputs.artifact-name || 'macos-package' }}
 
     steps:
@@ -48,14 +47,12 @@ jobs:
           key: pkcs11-${{ runner.os }}-${{ env.PKCS11_VERSION }}
 
       # Запускается и при попадании в кэш: контрольная сумма ассета проверяется
-      # каждый раз, кэшированный архив доверия не заслуживает.
+      # каждый раз, кэшированная библиотека доверия не заслуживает.
       - name: Fetch and verify WT PKCS#11 .dylib
         run: |
           python scripts/download_wtpkcs11ecp.py \
-            --tag 3rdparty \
-            --pattern macos \
-            --pattern x86_64 \
-            --library-pattern wtpkcs11ecp.dylib \
+            --version "$PKCS11_VERSION" \
+            --artifact macos-uni/wtpkcs11ecp.framework/Versions/2.18.2.0/wtpkcs11ecp \
             --target wtpkcs11ecp.dylib
 
       - name: Build executable

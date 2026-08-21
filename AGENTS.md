@@ -216,7 +216,7 @@ Python 3.11+ (`.devcontainer` pins 3.12, CI uses `3.x`). No virtualenv is checke
 | Run one test | `python -m pytest tests/test_sign.py::test_sign_hash_ec_success` |
 | Install build dependencies | `pip install -r requirements-build.txt` |
 | Build the executable | `pyinstaller --onefile main.py` (writes `dist/main`) |
-| Fetch the vendor PKCS#11 library | `python scripts/download_wtpkcs11ecp.py --repository code-agent-43824/wallet-tool --pattern linux --pattern x86_64 --library-pattern libwtpkcs11ecp.so` |
+| Fetch the vendor PKCS#11 library | `python scripts/download_wtpkcs11ecp.py --artifact linux-x64/libwtpkcs11ecp.so` |
 
 There is **no linter and no formatter** in this project — nothing to run, and nothing that
 gates the trunk. Do not add one without a settled decision (§9).
@@ -224,8 +224,10 @@ gates the trunk. Do not add one without a settled decision (§9).
 ## Settled decisions
 
 - **The vendor library `wtpkcs11ecp` is never committed.** It is fetched by
-  `scripts/download_wtpkcs11ecp.py` from the `3rdparty` GitHub release and is covered by
-  `.gitignore` (`*.so`, `*.dll`, `*.dylib`). Reason: §7 — vendor binaries stay out of git.
+  `scripts/download_wtpkcs11ecp.py` from the versioned static archive at
+  `mescheryakov.pro` and is covered by `.gitignore` (`*.so`, `*.dll`, `*.dylib`). Each
+  artifact is pinned by SHA-256 in the repository. Reason: §7 — vendor binaries stay out
+  of git, while immutable versioned URLs and local pins make the build reproducible.
 - **Console output, error messages and CLI help are in Russian; identifiers are in English.**
   Reason: §10, and the tool is used by Russian-speaking operators. Tests assert on the exact
   Russian strings, so a wording change is a change in two places (§10).
@@ -253,9 +255,15 @@ changelog.
 
 ## Deployment
 
-There is **no server and no production deploy**. A push to the trunk builds executables for
-Linux, macOS and Windows; nothing is published from it. Artifacts reach users only when the
-owner publishes a GitHub Release, which triggers `release.yml`.
+The CLI has **no server and no production deploy**. A push to the trunk builds executables
+for Linux, macOS and Windows; nothing is published from it. Artifacts reach users only when
+the owner publishes a GitHub Release, which triggers `release.yml`.
+
+The vendor archive is separate static infrastructure under
+`/home/openclaw/sites/mescheryakov.pro/public/downloads/wallet-tool/wtpkcs11ecp`. Only
+Watson changes it (§6). Version directories are immutable: publish a new directory, verify
+every required file over HTTPS, then update the pinned version and SHA-256 in the repository.
+Never replace a file at an existing versioned URL.
 
 Publishing a release is **the owner's action** — it creates a published artifact (§5), and
 the proxy blocks tag writes anyway (§12). An agent never cuts a release.

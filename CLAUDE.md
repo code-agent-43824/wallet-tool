@@ -31,7 +31,7 @@ There is no `pyca/pkcs11` or any other binding — the whole FFI layer is hand-w
 | `pkcs11.py` | Loads the shared library; the `@pkcs11_command` decorator |
 | `pkcs11_structs.py` | `CK_*` structures and every PKCS#11 constant the tool uses |
 | `pkcs11_definitions.py` | `define_pkcs11_functions()` — `argtypes`/`restype` for each `C_*` call |
-| `scripts/download_wtpkcs11ecp.py` | Fetches the vendor library from the `3rdparty` GitHub release |
+| `scripts/download_wtpkcs11ecp.py` | Fetches a pinned vendor library from the versioned static archive |
 
 ## The command pattern
 
@@ -166,7 +166,7 @@ Each file has its own `sys.path.insert(0, ...)` pointing at the repo root; there
 
 ## What is not in this repository
 
-- The `wtpkcs11ecp` library itself — fetched, never committed.
+- The `wtpkcs11ecp` library itself — fetched from the versioned static archive, never committed.
 - Any linter, formatter or type checker, and any config for one.
 - A `requirements.txt` for running the tool: it has no runtime dependencies beyond the
   standard library.

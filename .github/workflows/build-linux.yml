@@ -15,8 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       EXPECTED_DESCRIPTION: "Rutoken Wallet PKCS #11 library"
-      PKCS11_VERSION: "3rdparty" # bump to refresh cache when library updates
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PKCS11_VERSION: "2.18.2.0" # versioned static directory and cache key
       ARTIFACT_NAME: ${{ inputs.artifact-name || 'linux-package' }}
 
     steps:
@@ -45,13 +44,12 @@ jobs:
           key: pkcs11-${{ runner.os }}-${{ env.PKCS11_VERSION }}
 
       # Запускается и при попадании в кэш: контрольная сумма ассета проверяется
-      # каждый раз, кэшированный архив доверия не заслуживает.
+      # каждый раз, кэшированная библиотека доверия не заслуживает.
       - name: Fetch and verify WT PKCS#11 .so
         run: |
           python scripts/download_wtpkcs11ecp.py \
-            --pattern linux \
-            --pattern x86_64 \
-            --library-pattern libwtpkcs11ecp.so
+            --version "$PKCS11_VERSION" \
+            --artifact linux-x64/libwtpkcs11ecp.so
 
       - name: Build executable
         run: pyinstaller --onefile main.py
