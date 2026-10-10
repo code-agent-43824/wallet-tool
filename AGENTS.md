@@ -4,27 +4,12 @@ Canonical development rules: [coding-rules](https://scm.aktivco.ru/prototypes/co
 (raw: https://scm.aktivco.ru/prototypes/coding-rules/-/raw/main/AGENTS.md).
 This file does NOT duplicate the canon (goose injects every subdirectory's
 AGENTS.md into each session's context) — project-specific material only.
-The map of the code lives in `CLAUDE.md`.
+Commands, CLI examples and the map of the code: `README.md` and `CLAUDE.md`.
 
 ## What this is
 
 CLI tool for Rutoken ECP tokens via PKCS#11 (ctypes, Python 3.11+; `.devcontainer`
 pins 3.12, CI uses `3.x`). No server, no production deploy.
-
-## Commands
-
-| Task | Command |
-| --- | --- |
-| Install test dependencies | `pip install -r requirements-dev.txt` |
-| Run all tests | `python -m pytest` |
-| Run one file | `python -m pytest tests/test_sign.py` |
-| Run one test | `python -m pytest tests/test_sign.py::test_sign_hash_ec_success` |
-| Install build dependencies | `pip install -r requirements-build.txt` |
-| Build the executable | `pyinstaller --onefile main.py` (writes `dist/main`) |
-| Fetch the vendor PKCS#11 library | `python scripts/download_wtpkcs11ecp.py --artifact linux-x64/libwtpkcs11ecp.so` |
-
-There is **no linter and no formatter** in this project — nothing to run, and nothing that
-gates the trunk. Do not add one without the owner's decision.
 
 ## Settled decisions
 
@@ -42,31 +27,28 @@ gates the trunk. Do not add one without the owner's decision.
 - **`main.py` dispatches with a plain chain of `if`s, not subparsers.** Reason: every
   command is a flag on one flat namespace, and the shape is asserted by the tests. Each
   branch returns the command's exit code, which `main()` hands to `sys.exit`.
+- **No linter, no formatter, no changelog** — nothing gates the trunk except `pytest`;
+  release history lives in GitHub Releases. Do not add one without the owner's decision.
 
 ## Version discipline
 
 `version.py` holds `__version__` and is the only place the number lives; `main.py` imports
 it for `--version`. It carries the version the **next** release will have, so raise it in
-the change that readies the release, not after.
-
-Releases are tagged `vMAJOR.MINOR` matching that number — `v0.1` through `v0.6` so far, and
-`__version__` is now `0.7`. They are cut by hand on GitHub; publishing one triggers
-`.github/workflows/release.yml`, which builds and attaches the artifacts. There is no
-changelog.
+the change that readies the release, not after. Releases are tagged `vMAJOR.MINOR`
+(`v0.1`–`v0.6` so far; `__version__` is now `0.7`) and are cut by hand on GitHub;
+publishing one triggers `.github/workflows/release.yml`, which builds and attaches the
+artifacts. Publishing a release is **the owner's action** — an agent never cuts a release.
 
 ## Deployment
 
 A push to the trunk builds executables for Linux, macOS and Windows; nothing is published
-from it. Artifacts reach users only when the owner publishes a GitHub Release, which
-triggers `release.yml`.
+from it. Artifacts reach users only when the owner publishes a GitHub Release.
 
 The vendor archive is separate static infrastructure under
 `/home/openclaw/sites/mescheryakov.pro/public/downloads/wallet-tool/wtpkcs11ecp`. Only
 Watson changes it. Version directories are immutable: publish a new directory, verify
 every required file over HTTPS, then update the pinned version and SHA-256 in the repository.
 Never replace a file at an existing versioned URL.
-
-Publishing a release is **the owner's action**. An agent never cuts a release.
 
 ## What the owner reviews
 

@@ -10,6 +10,18 @@ objects.
 
 Put the wtpkcs11ecp library into programm working directory.
 
+## Development commands
+
+| Task | Command |
+| --- | --- |
+| Install test dependencies | `pip install -r requirements-dev.txt` |
+| Run all tests | `python -m pytest` |
+| Run one file | `python -m pytest tests/test_sign.py` |
+| Run one test | `python -m pytest tests/test_sign.py::test_sign_hash_ec_success` |
+| Install build dependencies | `pip install -r requirements-build.txt` |
+| Build the executable | `pyinstaller --onefile main.py` (writes `dist/main`) |
+| Fetch the vendor PKCS#11 library | `python scripts/download_wtpkcs11ecp.py --artifact linux-x64/libwtpkcs11ecp.so` |
+
 ## PIN-code
 
 Commands that need authentication ask for the PIN-code instead of taking it from
